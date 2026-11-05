@@ -75,14 +75,20 @@ struct ContentView: View {
                         if updater.updateAvailable { Circle().fill(Color.blue).frame(width: 7, height: 7).offset(x: 1, y: -1) }
                     }
             }
-            if !h.issues.isEmpty || m.camOn || m.micOn {
-                HStack(spacing: 5) {
-                    if m.camOn { StatusChip(icon: "video.fill", text: "Camera", color: .green) }
-                    if m.micOn { StatusChip(icon: "mic.fill", text: "Mic", color: .orange) }
-                    ForEach(h.issues, id: \.self) { StatusChip(icon: "exclamationmark.triangle.fill", text: $0, color: .orange) }
+            // Always present with a fixed height so the popover never changes size when issues come and go.
+            HStack(spacing: 5) {
+                if m.camOn { StatusChip(icon: "video.fill", text: "Camera", color: .green) }
+                if m.micOn { StatusChip(icon: "mic.fill", text: "Mic", color: .orange) }
+                ForEach(h.issues, id: \.self) { StatusChip(icon: "exclamationmark.triangle.fill", text: $0, color: .orange) }
+                if h.issues.isEmpty && !m.camOn && !m.micOn {
+                    StatusChip(icon: "checkmark.circle.fill", text: "No issues", color: .green)
                 }
-                .lineLimit(1)
+                Spacer(minLength: 0)
             }
+            .lineLimit(1)
+            .frame(height: 22)
+            .clipped()
+            .help(h.issues.joined(separator: "\n"))
         }
         .padding(.horizontal, 2)
     }
@@ -353,10 +359,14 @@ struct ProcessesCard: View {
     @ObservedObject var settings: Settings
     @State private var confirmIdle = false
 
+    /// Fixed number of rows (and fixed row height) so the card – and the popover – never change size.
+    static let rowCount = 5
+    static let rowHeight: CGFloat = 22
+
     private var top: [ProcGroup] {
         let sorted = settings.processSort == "mem" ? m.processes.sorted { $0.memory > $1.memory }
                                                   : m.processes.sorted { $0.cpu > $1.cpu }
-        return Array(sorted.prefix(6))
+        return Array(sorted.prefix(Self.rowCount))
     }
 
     var body: some View {
@@ -369,9 +379,17 @@ struct ProcessesCard: View {
                 Color.clear.frame(width: 18)
             }
             .padding(.bottom, 6)
-            ForEach(top) { p in ProcessRow(p: p) }
-            if m.processes.isEmpty { Text("Loading…").font(.system(size: 11)).foregroundStyle(.secondary).padding(.vertical, 4) }
-            if !m.idleApps.isEmpty {
+            let rows = top
+            ForEach(rows) { p in ProcessRow(p: p).frame(height: Self.rowHeight) }
+            ForEach(rows.count..<Self.rowCount, id: \.self) { i in
+                Text(i == 0 && m.processes.isEmpty ? "Loading…" : " ")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Self.rowHeight, maxHeight: Self.rowHeight, alignment: .leading)
+            }
+            if m.idleApps.isEmpty {
+                Text("No idle background apps").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .frame(height: 16).padding(.top, 6)
+            } else {
                 let total = m.idleApps.reduce(0) { $0 + $1.memory }
                 HStack {
                     Text("\(m.idleApps.count) idle app\(m.idleApps.count > 1 ? "s" : "") using \(Fmt.bytesStr(Double(total)))")
@@ -396,6 +414,7 @@ struct ProcessesCard: View {
                             .padding(12).frame(width: 260)
                         }
                 }
+                .frame(height: 16)
                 .padding(.top, 6)
                 .help(m.idleApps.map(\.name).joined(separator: ", ") + "\nBackground apps with no visible windows and ~0% CPU")
             }
