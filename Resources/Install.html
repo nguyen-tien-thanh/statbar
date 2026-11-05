@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cài đặt StatBar</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --card: #ffffff; --ink: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.08);
+    --accent: #0a6cff; --accent-ink: #ffffff; --code: #f0f0f3; --warn: #ff9f2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --card: #232326; --ink: #f5f5f7; --muted: #a1a1a6; --line: rgba(255,255,255,.1);
+      --accent: #3b8bff; --code: #2c2c30;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 40px 16px 56px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 14px; }
+  .step { display: grid; grid-template-columns: 32px 1fr; gap: 14px; }
+  .num {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center; font-weight: 600; font-size: 15px;
+  }
+  h2 { font-size: 17px; margin: 4px 0 6px; }
+  p { margin: 0 0 8px; }
+  .muted { color: var(--muted); font-size: 13.5px; }
+  b.ui { font-weight: 600; white-space: nowrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; margin: 10px 0 6px;
+    background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600;
+    padding: 11px 18px; border-radius: 10px; border: 0; font-size: 15px; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 7px 12px; font-size: 13px; margin: 0; }
+  .code {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--code); border-radius: 10px; padding: 10px 12px; margin: 8px 0 4px;
+  }
+  .code code { font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  details { margin-top: 4px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .note { border-left: 3px solid var(--warn); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0 24px; }
+  ol.en { padding-left: 20px; margin: 0; }
+  ol.en li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cài đặt StatBar</h1>
+  <p class="sub">Chỉ mất khoảng 1 phút và chỉ cần làm một lần.</p>
+
+  <section class="card step">
+    <div class="num">1</div>
+    <div>
+      <h2>Kéo StatBar vào Applications</h2>
+      <p>Trong cửa sổ vừa mở, kéo biểu tượng <b class="ui">StatBar</b> thả vào thư mục <b class="ui">Applications</b>.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">2</div>
+    <div>
+      <h2>Mở StatBar một lần</h2>
+      <p>Mở <b class="ui">Applications</b> (hoặc Launchpad) và nhấp đúp <b class="ui">StatBar</b>.
+         macOS sẽ báo không thể xác minh ứng dụng: bấm <b class="ui">Done</b> (<b class="ui">Xong</b>).</p>
+      <p class="muted">Đừng bấm “Move to Trash”. Bước này để macOS ghi nhận StatBar, nhờ đó nút cho phép mới hiện ở bước 3.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">3</div>
+    <div>
+      <h2>Cho phép mở trong System Settings</h2>
+      <p>Bấm nút bên dưới để mở thẳng mục <b class="ui">Privacy &amp; Security</b>:</p>
+      <a class="btn" href="x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension">Mở Privacy &amp; Security</a>
+      <p class="muted">Nếu trình duyệt hỏi có cho phép mở System Settings không, chọn <b class="ui">Allow</b> / <b class="ui">Open</b>.</p>
+      <p>Kéo xuống phần <b class="ui">Security</b>, thấy dòng <i>“StatBar was blocked…”</i> thì bấm
+         <b class="ui">Open Anyway</b> (<b class="ui">Vẫn mở</b>), rồi xác nhận bằng mật khẩu hoặc Touch ID.</p>
+    </div>
+  </section>
+
+  <section class="card step">
+    <div class="num">4</div>
+    <div>
+      <h2>Xong!</h2>
+      <p>Biểu tượng StatBar hiện trên thanh menu, góc trên bên phải màn hình.
+         Bấm vào bánh răng để chọn thông số hiển thị và bật <b class="ui">Launch at login</b> (tự chạy khi mở máy).</p>
+    </div>
+  </section>
+
+  <section class="card note">
+    <details>
+      <summary>Cách khác: dùng Terminal (một lệnh)</summary>
+      <p style="margin-top:10px">Sau bước 1, mở Terminal (<b class="ui">Cmd + Space</b>, gõ “Terminal”), dán lệnh sau rồi Enter. Sau đó mở StatBar bình thường.</p>
+      <div class="code">
+        <code id="cmd">xattr -cr /Applications/StatBar.app</code>
+        <button class="btn secondary" type="button" id="copy">Sao chép</button>
+      </div>
+    </details>
+  </section>
+
+  <p class="muted"><b>Vì sao có cảnh báo?</b> StatBar là app miễn phí, chưa đăng ký với Apple nên macOS không tự xác minh được.
+     Yêu cầu macOS 13 Ventura trở lên.</p>
+
+  <hr>
+
+  <h2>Install (English)</h2>
+  <ol class="en">
+    <li>Drag <b>StatBar</b> onto <b>Applications</b>.</li>
+    <li>Open StatBar once. When macOS says it can’t verify the app, click <b>Done</b>.</li>
+    <li><a href="x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension">Open Privacy &amp; Security</a>,
+        scroll to <b>Security</b> and click <b>Open Anyway</b> next to StatBar, then confirm.</li>
+    <li>StatBar appears in the menu bar.</li>
+  </ol>
+  <p class="muted" style="margin-top:10px">Or run <code>xattr -cr /Applications/StatBar.app</code> in Terminal after step 1.</p>
+</main>
+<script>
+  document.getElementById('copy').addEventListener('click', function () {
+    var btn = this, text = document.getElementById('cmd').textContent;
+    function done() { btn.textContent = 'Đã chép ✓'; setTimeout(function () { btn.textContent = 'Sao chép'; }, 1600); }
+    function fallback() {
+      var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+      try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(t);
+    }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  });
+</script>
+</body>
+</html>
