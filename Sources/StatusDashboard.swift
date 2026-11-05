@@ -14,14 +14,13 @@ struct StatusDashboard: View {
 
     private var content: some View {
             VStack(spacing: 14) {
-                HStack(alignment: .top, spacing: 14) {
+                EqualRow {
                     healthPanel
-                    quickPanel.frame(width: 250)
+                    quickPanel.frame(width: 270)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
-                    cpuPanel; gpuPanel; memPanel; diskPanel
-                }
-                HStack(alignment: .top, spacing: 14) {
+                EqualRow { cpuPanel; gpuPanel }
+                EqualRow { memPanel; diskPanel }
+                EqualRow {
                     netPanel
                     thermalPanel.frame(width: 300)
                 }
@@ -72,12 +71,8 @@ struct StatusDashboard: View {
                             }
                         }
                     }
-                    HStack(spacing: 6) {
-                        Tag(text: SystemInfo.chip)
-                        Tag(text: "\(SystemInfo.memTotal >> 30) GB RAM")
-                        Tag(text: "macOS \(SystemInfo.osVersion)")
-                        Tag(text: Fmt.uptime(m.uptime))
-                    }
+                    Text("\(SystemInfo.chip) · \(SystemInfo.memTotal >> 30) GB RAM · macOS \(SystemInfo.osVersion) · \(Fmt.uptime(m.uptime))")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -122,7 +117,7 @@ struct StatusDashboard: View {
             PanelTitle(icon: "square.stack.3d.up.fill", title: "GPU", color: .gpuC,
                        tag: m.sensors.gpuTemp.map { settings.temp($0) }, tagColor: .level(m.sensors.gpuTemp ?? 0, warn: 75, crit: 90))
             BigValue(value: "\(Int(m.gpu.rounded()))", unit: "%", size: 30).padding(.top, 8)
-            Sparkline(values: m.gpuHistory.values, color: .gpuC, maxValue: 100).frame(height: 76).padding(.vertical, 8)
+            Sparkline(values: m.gpuHistory.values, color: .gpuC, maxValue: 100).frame(height: 84).padding(.vertical, 8)
             KV("Memory in use", Fmt.bytesStr(Double(m.gpuMem)))
             KV("State", m.gpu < 5 ? "Idle" : m.gpu < 50 ? "Active" : "Busy")
         }
@@ -157,13 +152,13 @@ struct StatusDashboard: View {
         return Panel {
             PanelTitle(icon: "internaldrive.fill", title: "Disk", color: .diskC, tag: "\(Int(used * 100))% used")
             BigValue(value: v, unit: "\(u) free", size: 30).padding(.top, 8)
-            ZStack {
-                Circle().stroke(Color.primary.opacity(0.08), lineWidth: 10)
-                Circle().trim(from: 0, to: used).stroke(used > 0.9 ? Color.red : Color.diskC, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text(Fmt.bytesStr(Double(m.disk.total), decimals: 0)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            Meter(fraction: used, color: used > 0.9 ? .red : .diskC, height: 10).padding(.top, 14).padding(.bottom, 4)
+            HStack {
+                Text("\(Fmt.bytesStr(Double(m.disk.total - m.disk.free), decimals: 0)) used").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Fmt.bytesStr(Double(m.disk.total), decimals: 0)) total").font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
-            .frame(width: 70, height: 70).frame(maxWidth: .infinity).padding(.vertical, 8)
+            .padding(.bottom, 12)
             KV("Read", Fmt.rate(m.disk.readRate))
             KV("Write", Fmt.rate(m.disk.writeRate))
             Button("Open Storage settings") { Tools.openStorageSettings() }
@@ -300,12 +295,21 @@ struct StatusDashboard: View {
 
 // MARK: - Building blocks
 
+/// Row whose children share the tallest child's height.
+private struct EqualRow<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) { content }
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 private struct Panel<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.primary.opacity(0.045)))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
     }
