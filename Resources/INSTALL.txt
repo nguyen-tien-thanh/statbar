@@ -1,0 +1,30 @@
+CÀI ĐẶT STATBAR
+===============
+
+1. Kéo StatBar vào thư mục Applications (ngay trong cửa sổ này).
+
+2. Mở Terminal (Cmd + Space, gõ "Terminal"), dán lệnh sau rồi Enter:
+
+       xattr -cr /Applications/StatBar.app
+
+3. Mở StatBar từ Applications (hoặc Launchpad).
+   Biểu tượng sẽ hiện trên thanh menu phía trên, góc phải màn hình.
+
+Không muốn dùng Terminal?
+  - Mở StatBar, khi hiện cảnh báo thì bấm "Done".
+  - Vào System Settings > Privacy & Security, kéo xuống dưới,
+    bấm "Open Anyway" cạnh dòng StatBar, rồi xác nhận.
+
+Vì sao có cảnh báo? StatBar là app miễn phí, chưa đăng ký với Apple,
+nên macOS không tự xác minh được. Chỉ cần làm một lần.
+
+Mẹo: bấm biểu tượng bánh răng trong StatBar để chọn thông số hiện
+trên thanh menu và bật "Launch at login" (tự chạy khi mở máy).
+Yêu cầu: macOS 13 Ventura trở lên.
+
+---------------------------------------------------------------
+INSTALL (English)
+1. Drag StatBar into Applications.
+2. In Terminal run:  xattr -cr /Applications/StatBar.app
+3. Open StatBar – it appears in the menu bar.
+   (Or: open it, click "Done", then System Settings > Privacy & Security > "Open Anyway".)
