@@ -18,5 +18,9 @@ Requires Xcode Command Line Tools. macOS 13+.
 
 Debug: `build/StatBar.app/Contents/MacOS/StatBar --snapshot /tmp/s.png` renders the popover to PNG.
 
+## Release
+    git tag v1.0.2 && git push origin v1.0.2
+GitHub Actions (`.github/workflows/release.yml`) builds the DMG with the tag's version and publishes the release; installed copies see the update in the popover.
+
 ## License
 MIT – see [LICENSE](LICENSE).

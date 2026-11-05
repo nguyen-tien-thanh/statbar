@@ -1,0 +1,39 @@
+# Push a version tag to publish a release:
+#   git tag v1.0.1 && git push origin v1.0.1
+# The version shown in the app comes from the tag; StatBar's update check picks it up automatically.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build StatBar.app + StatBar.dmg
+        run: VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${{ github.run_number }}" ./build.sh
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ### Install
+          1. Download **StatBar.dmg** below, open it and drag StatBar into Applications.
+          2. Open StatBar once and click **Done** on the macOS warning.
+          3. Open **Hướng dẫn cài đặt** in the DMG, click **Mở Privacy & Security**, then **Open Anyway**
+             (or run `xattr -cr /Applications/StatBar.app` in Terminal).
+
+          Already installed? StatBar shows **Update** in the popover – just download and replace the app.
+
+          Universal (Apple Silicon + Intel) · macOS 13 or later · MIT License
+          EOF
+          gh release create "$GITHUB_REF_NAME" build/StatBar.dmg \
+            --title "StatBar ${GITHUB_REF_NAME#v}" --notes-file notes.md --generate-notes --verify-tag

@@ -32,6 +32,12 @@ lipo -create $(for A in $ARCHS; do echo $OBJ/statbar-helper-$A; done) -output "$
 strip -x "$BUNDLE/Contents/MacOS/$APP" "$BUNDLE/Contents/MacOS/statbar-helper"
 
 cp Resources/Info.plist "$BUNDLE/Contents/Info.plist"
+# VERSION=1.2.3 ./build.sh (CI passes the git tag) overrides the version in Info.plist
+if [ -n "${VERSION:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$BUNDLE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUMBER:-1}" "$BUNDLE/Contents/Info.plist"
+fi
+echo "  version $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUNDLE/Contents/Info.plist")"
 
 echo "▸ Icon"
 swift scripts/make_icon.swift $OBJ/AppIcon.iconset
@@ -55,7 +61,7 @@ RW=$OBJ/rw.dmg
 hdiutil create -volname "$APP" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ -quiet "$RW"
 MNT=$(hdiutil attach "$RW" -readwrite -noverify -noautoopen | awk -F'\t' '/\/Volumes\//{print $NF}')
 # Window 640x440 content (+28 title bar); icon positions match scripts/make_dmg_background.swift
-if ! osascript - "$MNT" "$APP.app" "$GUIDE" <<'OSA'
+if ! perl -e 'alarm shift; exec @ARGV' 60 osascript - "$MNT" "$APP.app" "$GUIDE" <<'OSA'
 on run argv
   set mnt to item 1 of argv
   tell application "Finder"
