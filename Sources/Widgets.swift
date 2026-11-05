@@ -17,7 +17,8 @@ struct RingGauge: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
-        .animation(.easeOut(duration: 0.35), value: f)
+        // no animation: re-animating 4 rings on every tick (over the popover's blurred background)
+        // kept the GPU busy and inflated the GPU reading itself
     }
 }
 

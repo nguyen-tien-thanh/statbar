@@ -200,6 +200,9 @@ if CommandLine.arguments.contains("--selftest") {
     a.scan(FSUtil.home + "/Library"); wait { !a.scanning }
     print("ANALYZE ~/Library: \(FSUtil.fmt(a.root?.size ?? 0)), \(a.scannedFiles) files, \(a.deniedCount) denied, \(String(format: "%.1f", Date().timeIntervalSince(t1)))s")
     for n in a.root?.children.prefix(6) ?? [] { print("     \(n.name) \(FSUtil.fmt(n.size)) children=\(n.children.count)") }
+    let mon = Monitor(); mon.detailed = true
+    let tg = Date(); wait { Date().timeIntervalSince(tg) > 12 }
+    print("GPU (2s interval means):", mon.gpuHistory.values.suffix(6).map { String(format: "%.0f", $0) }.joined(separator: " "))
     let rects = Treemap.layout([50, 25, 15, 10], in: CGRect(x: 0, y: 0, width: 100, height: 100))
     let area = rects.reduce(0) { $0 + $1.width * $1.height }
     print("TREEMAP area check: \(Int(area)) (expect 10000), rects=\(rects.map { "\(Int($0.width))x\(Int($0.height))" })")

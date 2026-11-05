@@ -80,7 +80,7 @@ final class Monitor: ObservableObject {
     @Published var uptime: TimeInterval = 0
 
     /// true while the popover is open – enables the more expensive samplers
-    var detailed = false { didSet { if detailed && !oldValue { tick(full: true) } } }
+    var detailed = false { didSet { if detailed && !oldValue { queue.async { self.tick(full: true) } } } }
     let fanCount: Int
 
     private let cpuS = CPUSampler(), diskS = DiskSampler(), netS = NetworkSampler()
@@ -88,6 +88,39 @@ final class Monitor: ObservableObject {
     private let queue = DispatchQueue(label: "statbar.sampler", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var tickCount = 0
+
+    // GPU "Device Utilization %" is instantaneous and bursty (0 ↔ 20+ within 100 ms), so a single
+    // reading per tick is noise. While GPU is visible we sample at 5 Hz and report the interval mean.
+    // All of this is only touched on `queue`.
+    private var gpuTimer: DispatchSourceTimer?
+    private var gpuSum = 0.0, gpuCount = 0
+    private var gpuLast = GPUSampler.Result()
+
+    private func setGPUSampling(_ on: Bool) {
+        if on, gpuTimer == nil {
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            t.schedule(deadline: .now(), repeating: 0.2, leeway: .milliseconds(50))
+            t.setEventHandler { [weak self] in
+                guard let self else { return }
+                let r = GPUSampler.sample()
+                self.gpuSum += r.utilization; self.gpuCount += 1; self.gpuLast = r
+            }
+            t.resume()
+            gpuTimer = t
+        } else if !on, let t = gpuTimer {
+            t.cancel(); gpuTimer = nil
+            gpuSum = 0; gpuCount = 0
+        }
+    }
+
+    /// Mean utilisation since the previous tick (falls back to one reading when not sampling).
+    private func gpuAverage() -> GPUSampler.Result {
+        guard gpuCount > 0 else { return GPUSampler.sample() }
+        var r = gpuLast
+        r.utilization = gpuSum / Double(gpuCount)
+        gpuSum = 0; gpuCount = 0
+        return r
+    }
     private var cancellables = Set<AnyCancellable>()
 
     init() {
@@ -117,7 +150,8 @@ final class Monitor: ObservableObject {
         let c = cpuS.sample()
         let m = MemorySampler.sample()
         let n = netS.sample()
-        let g = GPUSampler.sample()
+        let g = gpuAverage()
+        setGPUSampling(detailed || items.contains(.gpu))
         let needTemps = detailed || items.contains(.temp)
         let s = sensorS.sample(temps: needTemps)
         let dk = (detailed || items.contains(.disk) || tickCount % 5 == 0) ? diskS.sample() : nil
