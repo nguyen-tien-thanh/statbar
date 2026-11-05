@@ -116,6 +116,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLi
         MainActor.assumeIsolated {
             for (view, suffix, scheme) in [(AnyView(ContentView(m: m, power: PowerAssertions(), fan: FanController())), "", ColorScheme.dark),
                                            (AnyView(ContentView(m: m, power: PowerAssertions(), fan: FanController())), "-light", ColorScheme.light),
+                                           (AnyView(ContentView(m: m, power: PowerAssertions(), fan: FanController(), page: .settings)), "-settings", ColorScheme.dark),
                                            (AnyView(StatusLabel(m: m, items: Set(MenuItemKind.allCases), fahrenheit: false).background(Color.white)), "-label", ColorScheme.light),
                                            (AnyView(StatusDashboard(m: m, power: PowerAssertions(), fan: FanController(), scrolls: false).frame(width: 760)), "-dash", ColorScheme.dark),
                                            (AnyView(StatusDashboard(m: m, power: PowerAssertions(), fan: FanController(), scrolls: false).frame(width: 760)), "-dash-light", ColorScheme.light)] {

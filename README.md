@@ -17,3 +17,6 @@ Requires Xcode Command Line Tools. macOS 13+.
 - `Resources/Install.html` – install guide shipped in the DMG; button opens System Settings › Privacy & Security directly
 
 Debug: `build/StatBar.app/Contents/MacOS/StatBar --snapshot /tmp/s.png` renders the popover to PNG.
+
+## License
+MIT – see [LICENSE](LICENSE).

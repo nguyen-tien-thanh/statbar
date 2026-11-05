@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 
+enum PopoverPage { case main, settings }
+
 struct ContentView: View {
     @ObservedObject var m: Monitor
     @ObservedObject var settings = Settings.shared
@@ -8,180 +10,180 @@ struct ContentView: View {
     @ObservedObject var fan: FanController
     @ObservedObject var priv = Privileged.shared
     @ObservedObject var updater = Updater.shared
+    @State var page: PopoverPage = .main
 
     var body: some View {
-        VStack(spacing: 8) {
-            header
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                cpuCard; gpuCard; memCard; diskCard; netCard; fanCard
+        ZStack(alignment: .top) {
+            if page == .main {
+                mainPage.transition(.move(edge: .leading).combined(with: .opacity))
+            } else {
+                SettingsPage(settings: settings, priv: priv, updater: updater) { go(.main) }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
-            if m.battery.present { batteryCard }
+        }
+        .frame(width: 360)
+        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in page = .main }
+    }
+
+    private func go(_ p: PopoverPage) { withAnimation(.easeInOut(duration: 0.22)) { page = p } }
+
+    private var mainPage: some View {
+        VStack(spacing: 10) {
+            header
+            gauges
+            activity
+            thermalsAndPower
             ProcessesCard(m: m, settings: settings)
-            controlsCard
+            quickToggles
+            tools
             footer
         }
         .padding(12)
-        .frame(width: 360)
     }
 
     // MARK: header
 
+    private var healthColor: Color {
+        let s = m.health.score
+        return s >= 80 ? .cpuC : s >= 60 ? .orange : .red
+    }
+
     private var header: some View {
         let h = m.health
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                Image(systemName: h.symbol)
-                    .symbolRenderingMode(.multicolor)
-                    .font(.system(size: 24))
-                Text("\(h.score)").font(.system(size: 30, weight: .bold, design: .rounded)).monospacedDigit()
-                Text(h.label).font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary).padding(.top, 6)
-                Spacer()
-                Button { m.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Refresh now")
+            HStack(spacing: 11) {
+                ZStack {
+                    RingGauge(fraction: Double(h.score) / 100, color: healthColor, lineWidth: 4.5)
+                    Text("\(h.score)").font(.system(size: 15, weight: .bold, design: .rounded)).monospacedDigit()
+                }
+                .frame(width: 44, height: 44)
+                .help("Health score (0–100) from CPU load, memory pressure, swap, temperature, disk space and battery")
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("System \(h.label.lowercased())").font(.system(size: 15, weight: .semibold))
+                        Circle().fill(healthColor).frame(width: 6, height: 6)
+                    }
+                    Text("\(SystemInfo.chip) · \(SystemInfo.memTotal >> 30) GB · macOS \(SystemInfo.osVersion)")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(Fmt.uptime(m.uptime).replacingOccurrences(of: "up ", with: "Up "))
+                        .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 4)
+                CircleIconButton(icon: "arrow.clockwise", help: "Refresh now") { m.refreshNow() }
+                CircleIconButton(icon: "gearshape", help: "Settings") { go(.settings) }
+                    .overlay(alignment: .topTrailing) {
+                        if updater.updateAvailable { Circle().fill(Color.blue).frame(width: 7, height: 7).offset(x: 1, y: -1) }
+                    }
             }
-            HStack(spacing: 5) {
-                Tag(text: SystemInfo.chip)
-                Tag(text: "\(SystemInfo.memTotal >> 30) GB")
-                Tag(text: "macOS \(SystemInfo.osVersion)")
-                Tag(text: Fmt.uptime(m.uptime))
-            }
-            if !h.issues.isEmpty {
-                Text(h.issues.joined(separator: " · "))
-                    .font(.system(size: 10.5)).foregroundStyle(Color.orange)
+            if !h.issues.isEmpty || m.camOn || m.micOn {
+                HStack(spacing: 5) {
+                    if m.camOn { StatusChip(icon: "video.fill", text: "Camera", color: .green) }
+                    if m.micOn { StatusChip(icon: "mic.fill", text: "Mic", color: .orange) }
+                    ForEach(h.issues, id: \.self) { StatusChip(icon: "exclamationmark.triangle.fill", text: $0, color: .orange) }
+                }
+                .lineLimit(1)
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
     }
 
-    // MARK: cards
+    // MARK: gauges
 
-    private var cpuCard: some View {
-        Card {
-            CardHeader(icon: "cpu", title: "CPU", color: .cpuC,
-                       tag: m.sensors.cpuTemp.map { settings.temp($0) }, tagColor: .level(m.sensors.cpuTemp ?? 0, warn: 75, crit: 90))
-            BigValue(value: "\(Int(m.cpu.rounded()))", unit: "%").padding(.top, 6)
-            BarHistory(values: m.cpuHistory.values, color: .cpuC).frame(height: 24).padding(.vertical, 6)
-            HStack(spacing: 4) {
-                Text("usr \(Int(m.cpuUser))% · sys \(Int(m.cpuSystem))%")
-                Spacer()
-                if let p = m.sensors.systemPower { Text(String(format: "%.1fW", p)) }
+    private var gauges: some View {
+        let used = m.disk.total > 0 ? 1 - Double(m.disk.free) / Double(m.disk.total) : 0
+        let memColor: Color = m.mem.pressureLevel >= 4 ? .red : m.mem.pressureLevel >= 2 ? .orange : .memC
+        return Surface(padding: 10) {
+            HStack(spacing: 0) {
+                GaugeTile(title: "CPU", value: "\(Int(m.cpu.rounded()))", fraction: m.cpu / 100,
+                          color: m.cpu > 85 ? .red : .cpuC, detail: m.sensors.cpuTemp.map { settings.temp($0) })
+                    .help(cpuTooltip)
+                GaugeTile(title: "GPU", value: "\(Int(m.gpu.rounded()))", fraction: m.gpu / 100,
+                          color: .gpuC, detail: m.sensors.gpuTemp.map { settings.temp($0) } ?? Fmt.bytesStr(Double(m.gpuMem)))
+                    .help("GPU utilisation\nVRAM in use: \(Fmt.bytesStr(Double(m.gpuMem)))")
+                GaugeTile(title: "Memory", value: "\(Int(m.memPercent.rounded()))", fraction: m.memPercent / 100, color: memColor,
+                          detail: String(format: "%.1f / %d GB", Double(m.mem.used) / 1_073_741_824, SystemInfo.memTotal >> 30))
+                    .help(memTooltip)
+                GaugeTile(title: "Disk", value: "\(Int((used * 100).rounded()))", fraction: used, color: used > 0.9 ? .red : .diskC,
+                          detail: "\(Fmt.bytesStr(Double(m.disk.free), decimals: 0)) free")
+                    .onTapGesture { Tools.openStorageSettings() }
+                    .help("R \(Fmt.rate(m.disk.readRate)) · W \(Fmt.rate(m.disk.writeRate))\nClick to open Storage settings")
             }
-            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
         }
-        .help(cpuTooltip)
     }
 
     private var cpuTooltip: String {
-        var s = String(format: "Load average: %.2f  %.2f  %.2f", m.load[0], m.load[1], m.load[2])
+        var s = String(format: "usr %d%% · sys %d%%\nLoad average: %.2f  %.2f  %.2f", Int(m.cpuUser), Int(m.cpuSystem), m.load[0], m.load[1], m.load[2])
         if let p = SystemInfo.pCores, let e = SystemInfo.eCores { s += "\n\(p) performance + \(e) efficiency cores" }
         s += "\nPer core: " + m.perCore.map { "\(Int($0))" }.joined(separator: " ")
-        if m.sensors.systemPower != nil { s += "\nPower = total system power from SMC" }
+        if let p = m.sensors.systemPower { s += String(format: "\nSystem power: %.1f W", p) }
         return s
     }
 
-    private var gpuCard: some View {
-        Card {
-            CardHeader(icon: "square.stack.3d.up.fill", title: "GPU", color: .gpuC,
-                       tag: m.sensors.gpuTemp.map { settings.temp($0) }, tagColor: .level(m.sensors.gpuTemp ?? 0, warn: 75, crit: 90))
-            BigValue(value: "\(Int(m.gpu.rounded()))", unit: "%").padding(.top, 6)
-            Sparkline(values: m.gpuHistory.values, color: .gpuC, maxValue: 100).frame(height: 24).padding(.vertical, 6)
-            Text(m.gpu < 5 ? "idle · \(Fmt.bytesStr(Double(m.gpuMem)))" : "VRAM \(Fmt.bytesStr(Double(m.gpuMem)))")
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-        }
+    private var memTooltip: String {
+        var s = "App: \(Fmt.bytesStr(Double(m.mem.app)))\nWired: \(Fmt.bytesStr(Double(m.mem.wired)))\nCompressed: \(Fmt.bytesStr(Double(m.mem.compressed)))\nCached files: \(Fmt.bytesStr(Double(m.mem.cached)))"
+        if m.mem.swapUsed > 0 { s += "\nSwap: \(Fmt.bytesStr(Double(m.mem.swapUsed)))" }
+        return s
     }
 
-    private var memCard: some View {
-        let (tag, color): (String, Color) = switch m.mem.pressureLevel {
-            case 4: ("Critical", Color.red)
-            case 2: ("High", Color.orange)
-            default: ("Normal", .cpuC)
-        }
-        return Card {
-            CardHeader(icon: "memorychip", title: "MEM", color: .memC, tag: tag, tagColor: color)
-            BigValue(value: "\(Int(m.memPercent.rounded()))", unit: "%").padding(.top, 6)
-            Sparkline(values: m.memHistory.values, color: .memC, maxValue: 100).frame(height: 24).padding(.vertical, 6)
-            HStack {
-                Text("\(String(format: "%.1f", Double(m.mem.used) / 1_073_741_824)) / \(SystemInfo.memTotal >> 30) GB")
-                Spacer()
-                if m.mem.swapUsed > 0 { Text("swap \(Fmt.bytesStr(Double(m.mem.swapUsed)))") }
-            }
-            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .help("App: \(Fmt.bytesStr(Double(m.mem.app)))\nWired: \(Fmt.bytesStr(Double(m.mem.wired)))\nCompressed: \(Fmt.bytesStr(Double(m.mem.compressed)))\nCached files: \(Fmt.bytesStr(Double(m.mem.cached)))")
-    }
+    // MARK: activity
 
-    private var diskCard: some View {
-        let used = m.disk.total > 0 ? 1 - Double(m.disk.free) / Double(m.disk.total) : 0
-        let (v, u) = Fmt.bytes(Double(m.disk.free), decimals: 0)
-        return Card {
-            CardHeader(icon: "internaldrive.fill", title: "Free space", color: .diskC,
-                       tag: m.disk.total > 0 ? Fmt.bytesStr(Double(m.disk.total), decimals: 0) : nil)
-            BigValue(value: v, unit: u).padding(.top, 6)
-            Meter(fraction: used, color: used > 0.9 ? .red : .diskC).frame(height: 24, alignment: .center).padding(.vertical, 6)
-            Text("R \(Fmt.rate(m.disk.readRate)) · W \(Fmt.rate(m.disk.writeRate))")
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { Tools.openStorageSettings() }
-        .help("Click to open Storage settings")
-    }
-
-    private var netCard: some View {
-        let (v, u) = Fmt.bytes(m.net.down)
+    private var activity: some View {
         let lag: (String, Color) = {
             if m.latencyFailed { return ("Offline", .red) }
             guard let ms = m.latencyMs else { return ("…", .secondary) }
-            if ms < 60 { return ("Low Lag \(Int(ms))ms", .cpuC) }
-            if ms < 150 { return ("Lag \(Int(ms))ms", .orange) }
-            return ("High Lag \(Int(ms))ms", .red)
+            return ("\(Int(ms)) ms", ms < 60 ? .cpuC : ms < 150 ? .orange : .red)
         }()
-        let tag = m.connection.kind
-        return Card {
-            CardHeader(icon: m.connection.kind == "Wi-Fi" ? "wifi" : "network", title: "Network", color: .netC, tag: tag)
-            BigValue(value: "↓ " + v, unit: u + "/s").padding(.top, 6)
-            Sparkline(values: m.downHistory.values, color: .netC, secondary: m.upHistory.values, secondaryColor: .pink)
-                .frame(height: 24).padding(.vertical, 6)
-            HStack(spacing: 4) {
-                Text("↑ \(Fmt.rate(m.net.up))")
-                Spacer(minLength: 2)
-                Text(lag.0).foregroundStyle(lag.1)
+        return Surface(padding: 10) {
+            ActivityRow(icon: "cpu", color: .cpuC, title: "Processor",
+                        detail: "usr \(Int(m.cpuUser))% · sys \(Int(m.cpuSystem))%" + (m.sensors.systemPower.map { String(format: " · %.1fW", $0) } ?? ""),
+                        value: "\(Int(m.cpu.rounded()))%") {
+                Sparkline(values: m.cpuHistory.values, color: .cpuC, maxValue: 100)
             }
-            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            .help(cpuTooltip)
+            Divider().padding(.vertical, 6).padding(.leading, 36)
+            ActivityRow(icon: m.connection.kind == "Wi-Fi" ? "wifi" : "network", color: .netC,
+                        title: m.connection.kind.isEmpty ? "Network" : m.connection.kind,
+                        detail: "↑ \(Fmt.rate(m.net.up))", detailTrailing: (lag.0, lag.1),
+                        value: "↓ \(Fmt.rate(m.net.down))") {
+                Sparkline(values: m.downHistory.values, color: .netC, secondary: m.upHistory.values, secondaryColor: .pink)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { Tools.openNetworkSettings() }
+            .help((m.connection.rssi.map { "Wi-Fi signal: \($0) dBm\n" } ?? "") + "Total since boot: ↓ \(Fmt.bytesStr(Double(m.net.totalIn))) ↑ \(Fmt.bytesStr(Double(m.net.totalOut)))\nLatency = TCP connect to 1.1.1.1\nClick to open Network settings")
         }
-        .contentShape(Rectangle())
-        .onTapGesture { Tools.openNetworkSettings() }
-        .help((m.connection.rssi.map { "Wi-Fi signal: \($0) dBm\n" } ?? "") + "Total since boot: ↓ \(Fmt.bytesStr(Double(m.net.totalIn))) ↑ \(Fmt.bytesStr(Double(m.net.totalOut)))\nLatency = TCP connect to 1.1.1.1")
     }
 
-    @ViewBuilder private var fanCard: some View {
-        if let f = m.sensors.fans.first {
-            let pct = f.max > 0 ? Int((f.rpm / f.max * 100).rounded()) : 0
-            Card {
-                CardHeader(icon: "fan.fill", title: "Fan", color: .fanC, tag: "Speed \(min(pct, 100))%")
-                BigValue(value: f.rpm.formatted(.number.precision(.fractionLength(0))), unit: "RPM").padding(.top, 6)
-                Text(fan.mode != .auto ? "Manual · \(fan.mode.title)" : f.manual ? "Forced by another app" : "Managed by macOS")
-                    .font(.system(size: 10)).foregroundStyle(.secondary).padding(.top, 4)
-                HStack(spacing: 4) {
-                    ForEach(FanMode.allCases, id: \.self) { mode in
-                        PillButton(title: mode.title, active: fan.mode == mode, tint: .fanC.opacity(0.9)) { fan.set(mode) }
+    // MARK: thermals + power
+
+    @ViewBuilder private var thermalsAndPower: some View {
+        let hasFan = m.sensors.fans.first != nil
+        if hasFan || m.battery.present {
+            Surface(padding: 10) {
+                if let f = m.sensors.fans.first {
+                    let pct = f.max > 0 ? min(100, Int((f.rpm / f.max * 100).rounded())) : 0
+                    HStack(spacing: 10) {
+                        IconBadge(icon: "fan.fill", color: .fanC)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("\(f.rpm.formatted(.number.precision(.fractionLength(0)))) RPM").font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+                                Text("\(pct)%").font(.system(size: 10.5)).foregroundStyle(.secondary)
+                            }
+                            Text(fan.mode != .auto ? "Manual · \(fan.mode.title)" : f.manual ? "Forced by another app" : "Managed by macOS")
+                                .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 6)
+                        Segmented(options: FanMode.allCases.map { ($0, $0.title) }, selection: fan.mode, tint: .fanC, compact: true) { fan.set($0) }
+                            .disabled(fan.busy).opacity(fan.busy ? 0.6 : 1)
                     }
+                    .help("Cool = 70% of max speed (Max when CPU > 90°C), Max = 100%.\nNeeds Touch ID / admin password. Fans return to automatic control when StatBar quits.")
+                    if m.battery.present { Divider().padding(.vertical, 8).padding(.leading, 36) }
                 }
-                .disabled(fan.busy)
-                .padding(.top, 6)
-            }
-            .help("Cool = 70% of max speed (Max when CPU > 90°C), Max = 100%.\nNeeds Touch ID / admin password. Fans return to automatic control when StatBar quits.")
-        } else {
-            Card {
-                CardHeader(icon: "thermometer.medium", title: "Thermals", color: .fanC, tag: "Fanless")
-                BigValue(value: m.sensors.cpuTemp.map { "\(Int(($0 * (settings.fahrenheit ? 1.8 : 1) + (settings.fahrenheit ? 32 : 0)).rounded()))" } ?? "–",
-                         unit: settings.fahrenheit ? "°F" : "°C").padding(.top, 6)
-                Text("GPU \(settings.temp(m.sensors.gpuTemp))").font(.system(size: 10)).foregroundStyle(.secondary).padding(.top, 8)
-                if m.battery.present { Text("Battery \(settings.temp(m.battery.temperature))").font(.system(size: 10)).foregroundStyle(.secondary) }
+                if m.battery.present { batteryRow }
             }
         }
     }
 
-    private var batteryCard: some View {
+    private var batteryRow: some View {
         let b = m.battery
         let status: String = {
             if b.fullyCharged || (b.external && !b.charging && b.percent >= 99) { return "Charged" }
@@ -190,71 +192,52 @@ struct ContentView: View {
             return "On battery" + (b.timeRemaining.map { " · \(Fmt.minutes($0)) left" } ?? "")
         }()
         let col: Color = b.percent <= 20 && !b.external ? .red : .batC
-        return Card {
-            HStack(spacing: 5) {
-                Image(systemName: b.charging ? "battery.100.bolt" : "battery.100").font(.system(size: 11, weight: .semibold)).foregroundStyle(col)
-                Text("Battery").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                Text("\(b.cycles) cycles").font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Tag(text: "\(b.health)% Health", color: b.health < 80 ? .orange : .secondary)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                BigValue(value: "\(b.percent)", unit: "%", size: 26)
-                if b.external && b.adapterWatts > 0 {
-                    Label("\(b.adapterWatts)W", systemImage: "bolt.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+        let icon = b.charging ? "battery.100percent.bolt" : b.percent > 70 ? "battery.100percent" : b.percent > 40 ? "battery.50percent" : "battery.25percent"
+        return VStack(spacing: 7) {
+            HStack(spacing: 10) {
+                IconBadge(icon: icon, color: col)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(b.percent)%").font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+                        if b.external && b.adapterWatts > 0 { Text("· \(b.adapterWatts)W adapter").font(.system(size: 10.5)).foregroundStyle(.secondary) }
+                    }
+                    Text(status).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    if b.powerW > 0.05 { Text(String(format: "%@ %.1fW", b.charging ? "in" : "out", b.powerW)) }
-                    Text(settings.temp(b.temperature))
+                Spacer(minLength: 6)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Tag(text: "\(b.health)% health", color: b.health < 80 ? .orange : .secondary)
+                    Text("\(b.cycles) cycles · \(settings.temp(b.temperature))").font(.system(size: 9.5)).foregroundStyle(.secondary)
                 }
-                .font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            .padding(.top, 6)
-            Meter(fraction: Double(b.percent) / 100, color: col, height: 5).padding(.vertical, 5)
-            Text(status).font(.system(size: 11)).foregroundStyle(.secondary)
+            Meter(fraction: Double(b.percent) / 100, color: col, height: 4).padding(.leading, 36)
         }
         .contentShape(Rectangle())
         .onTapGesture { Tools.openBatterySettings() }
+        .help((b.powerW > 0.05 ? String(format: "%@ %.1f W\n", b.charging ? "Charging at" : "Drawing", b.powerW) : "") + "Click to open Battery settings")
     }
 
     // MARK: controls
 
-
-    private var controlsCard: some View {
-        Card {
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: m.camOn ? "video.fill" : "video").foregroundStyle(m.camOn ? Color.green : Color.secondary)
-                    Image(systemName: m.micOn ? "mic.fill" : "mic").foregroundStyle(m.micOn ? Color.orange : Color.secondary)
-                    Text(privacyText).font(.system(size: 11)).foregroundStyle(m.camOn || m.micOn ? Color.primary : Color.secondary)
-                }
-                .font(.system(size: 11))
-                Spacer()
-                PillButton(title: "Awake", icon: "cup.and.saucer.fill", active: power.awake, tint: .orange) { power.setAwake(!power.awake) }
-                    .help("Prevent the Mac from sleeping while idle")
-                PillButton(title: "Screen", icon: "display", active: power.screen, tint: .blue) { power.setScreen(!power.screen) }
-                    .help("Keep the display on")
-            }
-            Divider().padding(.vertical, 8)
-            HStack(spacing: 2) {
-                ForEach([ToolboxTab.clean, .uninstall, .optimize, .analyze]) { t in
-                    ToolTile(icon: t.icon, title: t.title, subtitle: nil) {
-                        NotificationCenter.default.post(name: .statbarClosePopover, object: nil)
-                        Toolbox.shared.open(t)
-                    }
-                    .help(t.subtitle)
-                }
-            }
+    private var quickToggles: some View {
+        HStack(spacing: 8) {
+            ToggleTile(icon: "cup.and.saucer.fill", title: "Keep awake", on: power.awake, tint: .orange) { power.setAwake(!power.awake) }
+                .help("Prevent the Mac from sleeping while idle")
+            ToggleTile(icon: "sun.max.fill", title: "Display on", on: power.screen, tint: .blue) { power.setScreen(!power.screen) }
+                .help("Keep the display from turning off")
         }
     }
 
-    private var privacyText: String {
-        switch (m.camOn, m.micOn) {
-        case (true, true): "Cam + Mic in use"
-        case (true, false): "Camera in use"
-        case (false, true): "Mic in use"
-        default: "Not in use"
+    private var tools: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionLabel("Tools")
+            HStack(spacing: 6) {
+                ForEach([ToolboxTab.clean, .uninstall, .optimize, .analyze]) { t in
+                    ToolButton(tab: t) {
+                        NotificationCenter.default.post(name: .statbarClosePopover, object: nil)
+                        Toolbox.shared.open(t)
+                    }
+                }
+            }
         }
     }
 
@@ -262,64 +245,22 @@ struct ContentView: View {
 
     private var footer: some View {
         HStack {
-            Menu {
-                Section("Show in menu bar") {
-                    ForEach(MenuItemKind.allCases) { k in
-                        Toggle(k.title, isOn: Binding(
-                            get: { settings.menuItems.contains(k) },
-                            set: { on in if on { settings.menuItems.insert(k) } else { settings.menuItems.remove(k) } }))
-                    }
-                }
-                Picker("Update every", selection: $settings.interval) {
-                    Text("1 second").tag(1.0); Text("2 seconds").tag(2.0); Text("3 seconds").tag(3.0); Text("5 seconds").tag(5.0)
-                }
-                Toggle("Fahrenheit", isOn: $settings.fahrenheit)
-                Toggle("Launch at login", isOn: Binding(get: { LoginItem.enabled }, set: { LoginItem.set($0) }))
-                switch priv.status {
-                case .ready: Button("Disable Touch ID for admin actions…") { priv.uninstall() }
-                case .outdated: Button("Update Touch ID helper…") { priv.install() }
-                case .notInstalled: Button("Use Touch ID for admin actions…") { priv.install() }
-                }
-                Divider()
-                Section("StatBar \(updater.current)") {
-                    if updater.updateAvailable, let v = updater.latest {
-                        Button("Download StatBar \(v)…") { updater.openDownload() }
-                    }
-                    Button(updater.state == .checking ? "Checking for Updates…" : "Check for Updates") { updater.check(manual: true) }
-                        .disabled(updater.state == .checking)
-                    Toggle("Check Automatically", isOn: $updater.autoCheck)
-                }
-                Divider()
-                Button("Quit StatBar") { NSApp.terminate(nil) }
-            } label: {
-                Image(systemName: "gearshape.fill")
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .overlay(alignment: .topTrailing) {
-                if updater.updateAvailable { Circle().fill(Color.blue).frame(width: 6, height: 6).offset(x: 2, y: -1) }
-            }
-            Spacer()
             versionBadge
             Spacer()
-            Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
-                .buttonStyle(.plain).foregroundStyle(.secondary).help("Quit StatBar")
+            Button { NSApp.terminate(nil) } label: {
+                Label("Quit", systemImage: "power").font(.system(size: 10.5, weight: .medium))
+            }
+            .buttonStyle(.plain).foregroundStyle(.secondary).help("Quit StatBar")
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
     }
 
-    /// "StatBar 1.0.0" — becomes a download link when GitHub has a newer release.
+    /// "StatBar 1.0.0" — becomes a download button when GitHub has a newer release.
     @ViewBuilder private var versionBadge: some View {
-        switch updater.state {
-        case .available:
-            Button { updater.openDownload() } label: {
-                Label("Update \(updater.latest ?? "")", systemImage: "arrow.down.circle.fill")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.blue))
-            }
-            .buttonStyle(.plain)
-            .help("StatBar \(updater.latest ?? "") is available (you have \(updater.current)). Click to download.")
-        default:
+        if updater.updateAvailable {
+            CapsuleButton(title: "Update to \(updater.latest ?? "")", icon: "arrow.down.circle.fill", tint: .blue) { updater.openDownload() }
+                .help("StatBar \(updater.latest ?? "") is available (you have \(updater.current)). Click to download.")
+        } else {
             Button { updater.check(manual: true) } label: {
                 HStack(spacing: 4) {
                     Text("StatBar \(updater.current)")
@@ -330,20 +271,78 @@ struct ContentView: View {
                     default: EmptyView()
                     }
                 }
-                .font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
+                .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
-            .help(versionHelp)
+            .help(updater.statusText + " · Click to check again")
         }
     }
+}
 
-    private var versionHelp: String {
-        switch updater.state {
-        case .upToDate: "Up to date. Click to check again."
-        case .failed(let msg): "Update check failed: \(msg). Click to retry."
-        case .checking: "Checking GitHub for updates…"
-        default: "Click to check for updates"
+// MARK: - Popover rows
+
+struct StatusChip: View {
+    let icon: String
+    let text: String
+    let color: Color
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 8.5, weight: .bold))
+            Text(text).font(.system(size: 10, weight: .medium))
         }
+        .foregroundStyle(color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.14)))
+    }
+}
+
+struct ActivityRow<Graph: View>: View {
+    let icon: String
+    let color: Color
+    let title: String
+    let detail: String
+    var detailTrailing: (String, Color)? = nil
+    let value: String
+    @ViewBuilder var graph: Graph
+    var body: some View {
+        HStack(spacing: 10) {
+            IconBadge(icon: icon, color: color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 12, weight: .semibold))
+                HStack(spacing: 4) {
+                    Text(detail)
+                    if let d = detailTrailing { Text("·"); Text(d.0).foregroundStyle(d.1) }
+                }
+                .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
+            }
+            Spacer(minLength: 6)
+            Text(value).font(.system(size: 12.5, weight: .semibold, design: .rounded)).monospacedDigit().lineLimit(1)
+            graph.frame(width: 78, height: 24)
+        }
+    }
+}
+
+struct ToolButton: View {
+    let tab: ToolboxTab
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tab.color)
+                    .frame(width: 32, height: 32)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tab.color.opacity(hover ? 0.24 : 0.14)))
+                Text(tab.title).font(.system(size: 10.5, weight: .medium)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(hover ? 0.06 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(tab.subtitle)
     }
 }
 
@@ -361,7 +360,7 @@ struct ProcessesCard: View {
     }
 
     var body: some View {
-        Card {
+        Surface(padding: 10) {
             HStack {
                 Text("Top Processes").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()

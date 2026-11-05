@@ -29,6 +29,21 @@ final class Updater: ObservableObject {
 
     var updateAvailable: Bool { state == .available }
 
+    var statusText: String {
+        switch state {
+        case .idle: return lastChecked.map { "Checked \(Self.relative($0))" } ?? "Not checked yet"
+        case .checking: return "Checking GitHub…"
+        case .upToDate: return "Up to date"
+        case .available: return "Version \(latest ?? "") is available"
+        case .failed(let msg): return "Couldn't check: \(msg)"
+        }
+    }
+
+    private static func relative(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
+        return f.localizedString(for: d, relativeTo: Date())
+    }
+
     func start() {
         // Restore the last known result so the badge survives relaunches without a request.
         if let v = UserDefaults.standard.string(forKey: "latestVersion"), Self.isNewer(v, than: current) {
