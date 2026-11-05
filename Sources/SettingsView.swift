@@ -120,8 +120,8 @@ struct SettingsPage: View {
                         .font(.system(size: 10.5)).foregroundStyle(updater.updateAvailable ? Color.blue : .secondary)
                     }
                     Spacer(minLength: 6)
-                    if updater.updateAvailable {
-                        CapsuleButton(title: "Download \(updater.latest ?? "")", icon: "arrow.down", tint: .blue) { updater.openDownload() }
+                    if updater.updateAvailable || updater.installing {
+                        UpdateActionButton(updater: updater)
                     } else {
                         CapsuleButton(title: updater.state == .checking ? "Checking…" : "Check now", tint: .accentColor, prominent: false) {
                             updater.check(manual: true)
@@ -130,6 +130,16 @@ struct SettingsPage: View {
                     }
                 }
                 .padding(.bottom, 4)
+                if case .failed(let msg) = updater.install {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(msg).foregroundStyle(.secondary).lineLimit(2)
+                        Spacer(minLength: 4)
+                        Button("Download manually") { updater.openDownload() }.buttonStyle(.link)
+                    }
+                    .font(.system(size: 10.5))
+                    .padding(.bottom, 4)
+                }
                 Divider().padding(.vertical, 4)
                 SettingRow(title: "Check automatically", subtitle: "Looks for new GitHub releases every few hours") {
                     Toggle("", isOn: $updater.autoCheck).toggleStyle(.switch).controlSize(.small).labelsHidden()

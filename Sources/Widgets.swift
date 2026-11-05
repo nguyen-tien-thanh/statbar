@@ -261,3 +261,41 @@ extension MenuItemKind {
         }
     }
 }
+
+/// "Update to x.y.z" → "Downloading 42%" → "Installing…" → app quits and reopens.
+struct UpdateActionButton: View {
+    @ObservedObject var updater: Updater
+    var body: some View {
+        switch updater.install {
+        case .downloading(let p):
+            progressPill(Text("Downloading \(Int(p * 100))%")) {
+                ProgressView(value: p).progressViewStyle(.circular).controlSize(.mini).scaleEffect(0.75).frame(width: 12, height: 12)
+            }
+        case .installing:
+            progressPill(Text("Installing…")) {
+                ProgressView().controlSize(.mini).scaleEffect(0.6).frame(width: 12, height: 12)
+            }
+        case .failed(let msg):
+            CapsuleButton(title: "Retry update", icon: "arrow.clockwise", tint: .orange) { updater.installUpdate() }
+                .help("Update failed: \(msg)\nClick to try again, or download it manually from Settings.")
+        case .none:
+            if updater.canSelfUpdate {
+                CapsuleButton(title: "Update to \(updater.latest ?? "")", icon: "arrow.down.circle.fill", tint: .blue) { updater.installUpdate() }
+                    .help("StatBar \(updater.latest ?? "") is available (you have \(updater.current)).\nClick to download it – StatBar quits, updates itself and reopens.")
+            } else {
+                CapsuleButton(title: "Download \(updater.latest ?? "")", icon: "arrow.down.circle.fill", tint: .blue) { updater.openDownload() }
+                    .help("Move StatBar to the Applications folder to enable one-click updates.")
+            }
+        }
+    }
+
+    private func progressPill<I: View>(_ label: Text, @ViewBuilder icon: () -> I) -> some View {
+        HStack(spacing: 5) {
+            icon()
+            label.font(.system(size: 11, weight: .semibold)).monospacedDigit()
+        }
+        .foregroundStyle(Color.blue)
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(Capsule().fill(Color.blue.opacity(0.14)))
+    }
+}

@@ -16,6 +16,13 @@ final class Updater: ObservableObject {
     @Published private(set) var latest: String?
     @Published private(set) var releaseURL: URL?
     @Published private(set) var downloadURL: URL?
+    private var downloadDigest: String?     // "sha256:…" from the GitHub asset, when provided
+
+    /// Progress of an in-app update (download → verify → replace → relaunch).
+    enum InstallState: Equatable { case none, downloading(Double), installing, failed(String) }
+    @Published private(set) var install: InstallState = .none
+    var installing: Bool { if case .downloading = install { return true }; return install == .installing }
+    private var progressObservation: NSKeyValueObservation?
     @Published var autoCheck: Bool = UserDefaults.standard.object(forKey: "autoUpdateCheck") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoCheck, forKey: "autoUpdateCheck"); if autoCheck { check() } }
     }
@@ -50,9 +57,10 @@ final class Updater: ObservableObject {
             latest = v
             releaseURL = UserDefaults.standard.url(forKey: "latestReleaseURL")
             downloadURL = UserDefaults.standard.url(forKey: "latestDownloadURL")
+            downloadDigest = UserDefaults.standard.string(forKey: "latestDownloadDigest")
             state = .available
         }
-        check()
+        check(manual: CommandLine.arguments.contains("--install-update"))
         timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
             Task { @MainActor in Updater.shared.check() }
         }
@@ -64,7 +72,7 @@ final class Updater: ObservableObject {
 
     /// `manual` bypasses the auto-check setting and the rate limit.
     func check(manual: Bool = false) {
-        guard state != .checking else { return }
+        guard state != .checking, !installing else { return }
         if !manual {
             guard autoCheck else { return }
             if let t = lastChecked, Date().timeIntervalSince(t) < minInterval { return }
@@ -74,10 +82,13 @@ final class Updater: ObservableObject {
             do {
                 lastChecked = Date()
                 guard let r = try await Self.fetchLatest() else { state = .upToDate; return }   // no releases yet
-                latest = r.version; releaseURL = r.page; downloadURL = r.dmg
+                latest = r.version; releaseURL = r.page; downloadURL = r.dmg; downloadDigest = r.digest
                 let d = UserDefaults.standard
                 d.set(r.version, forKey: "latestVersion"); d.set(r.page, forKey: "latestReleaseURL"); d.set(r.dmg, forKey: "latestDownloadURL")
+                d.set(r.digest, forKey: "latestDownloadDigest")
                 state = Self.isNewer(r.version, than: current) ? .available : .upToDate
+                // Debug: `StatBar --install-update` installs right away (used to test the update flow end to end)
+                if state == .available && CommandLine.arguments.contains("--install-update") { installUpdate() }
             } catch {
                 state = .failed((error as? UpdateError)?.message ?? "Offline")
             }
@@ -91,16 +102,60 @@ final class Updater: ObservableObject {
 
     func openReleasePage() { NSWorkspace.shared.open(releaseURL ?? Self.releasesPage) }
 
+    /// Can this copy replace itself? Not when run from the DMG, App Translocation or a folder we can't write.
+    var canSelfUpdate: Bool { UpdateInstaller.canReplace(Bundle.main.bundleURL) }
+
+    /// One click: download the DMG, verify it, swap the app bundle in place, quit and reopen.
+    /// Falls back to opening the download in the browser when the app can't replace itself.
+    func installUpdate() {
+        guard !installing else { return }
+        guard updateAvailable, let url = downloadURL, let version = latest, canSelfUpdate else { openDownload(); return }
+        install = .downloading(0)
+        let digest = downloadDigest
+        let task = URLSession.shared.downloadTask(with: url) { tmp, resp, err in
+            // `tmp` is deleted when this handler returns, so move it first.
+            var dmg: URL?
+            if let tmp, (resp as? HTTPURLResponse)?.statusCode == 200 {
+                let dest = FileManager.default.temporaryDirectory.appendingPathComponent("StatBar-\(version)-\(UUID().uuidString).dmg")
+                if (try? FileManager.default.moveItem(at: tmp, to: dest)) != nil { dmg = dest }
+            }
+            let failure = err?.localizedDescription ?? "Download failed"
+            Task { @MainActor in
+                let u = Updater.shared
+                u.progressObservation = nil
+                guard let dmg else { u.install = .failed(failure); return }
+                u.install = .installing
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let result = Result { try UpdateInstaller.install(dmg: dmg, expectedVersion: version, digest: digest) }
+                    try? FileManager.default.removeItem(at: dmg)
+                    Task { @MainActor in
+                        switch result {
+                        case .success: UpdateInstaller.relaunch()
+                        case .failure(let e): Updater.shared.install = .failed((e as? UpdateError)?.message ?? e.localizedDescription)
+                        }
+                    }
+                }
+            }
+        }
+        progressObservation = task.progress.observe(\.fractionCompleted) { p, _ in
+            let f = p.fractionCompleted
+            Task { @MainActor in
+                if case .downloading = Updater.shared.install { Updater.shared.install = .downloading(f) }
+            }
+        }
+        task.resume()
+    }
+
     // MARK: - GitHub
 
     struct UpdateError: Error { let message: String }
     private struct Release: Decodable {
         let tag_name: String; let html_url: URL; let draft: Bool; let prerelease: Bool
         let assets: [Asset]
-        struct Asset: Decodable { let name: String; let browser_download_url: URL }
+        struct Asset: Decodable { let name: String; let browser_download_url: URL; let digest: String? }
     }
 
-    private static func fetchLatest() async throws -> (version: String, page: URL, dmg: URL?)? {
+    private static func fetchLatest() async throws -> (version: String, page: URL, dmg: URL?, digest: String?)? {
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("StatBar/\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")",
@@ -114,8 +169,8 @@ final class Updater: ObservableObject {
         case let c: throw UpdateError(message: "GitHub error \(c)")
         }
         let r = try JSONDecoder().decode(Release.self, from: data)
-        let dmg = r.assets.first { $0.name.lowercased().hasSuffix(".dmg") }?.browser_download_url
-        return (normalize(r.tag_name), r.html_url, dmg)
+        let asset = r.assets.first { $0.name.lowercased().hasSuffix(".dmg") }
+        return (normalize(r.tag_name), r.html_url, asset?.browser_download_url, asset?.digest)
     }
 
     // MARK: - Versions

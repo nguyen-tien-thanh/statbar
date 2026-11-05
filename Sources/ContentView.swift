@@ -263,9 +263,8 @@ struct ContentView: View {
 
     /// "StatBar 1.0.0" — becomes a download button when GitHub has a newer release.
     @ViewBuilder private var versionBadge: some View {
-        if updater.updateAvailable {
-            CapsuleButton(title: "Update to \(updater.latest ?? "")", icon: "arrow.down.circle.fill", tint: .blue) { updater.openDownload() }
-                .help("StatBar \(updater.latest ?? "") is available (you have \(updater.current)). Click to download.")
+        if updater.updateAvailable || updater.installing {
+            UpdateActionButton(updater: updater)
         } else {
             Button { updater.check(manual: true) } label: {
                 HStack(spacing: 4) {
