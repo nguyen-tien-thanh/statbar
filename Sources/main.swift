@@ -62,25 +62,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         let renderer = ImageRenderer(content: StatusLabel(m: monitor, items: s.menuItems, fahrenheit: s.fahrenheit))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        // render for the sharpest attached display (menu bars on all screens share this image)
+        renderer.scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
         guard let img = renderer.nsImage else { return }
         img.isTemplate = true
         button.image = img
         lastImageKey = "label"
     }
 
+    /// Invisible, click-through window placed under the status item on the screen that was clicked.
+    /// The popover is anchored to it instead of the status button: with several displays macOS shows the
+    /// item in every menu bar but keeps a single button window, which it moves (lazily) to the active
+    /// display – anchoring to that button made the popover open on, or jump to, another screen.
+    private lazy var anchor: NSWindow = {
+        let w = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: true)
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = false
+        w.ignoresMouseEvents = true
+        w.level = .statusBar
+        w.isReleasedWhenClosed = false
+        w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        return w
+    }()
+    private var lastClose = Date.distantPast
+
     @objc private func toggle(_ sender: NSStatusBarButton) {
         if popover.isShown {
             popover.performClose(sender)
-        } else {
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
-            popover.contentViewController?.view.window?.makeKey()
-            updateDetailed()
+            return
         }
+        // A click on the icon first closes the transient popover (mouse down), then fires this action
+        // (mouse up) – don't reopen in that case.
+        if Date().timeIntervalSince(lastClose) < 0.25 { return }
+
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? sender.window?.screen ?? NSScreen.main
+        var rect: NSRect
+        if let bw = sender.window, let screen, bw.screen == screen, bw.frame.contains(NSPoint(x: mouse.x, y: bw.frame.midY)) {
+            rect = bw.frame                                   // button really is where the user clicked
+        } else if let screen {
+            let width = sender.window?.frame.width ?? 40
+            let barBottom = screen.visibleFrame.maxY < screen.frame.maxY ? screen.visibleFrame.maxY : screen.frame.maxY - 24
+            rect = NSRect(x: mouse.x - width / 2, y: barBottom, width: width, height: screen.frame.maxY - barBottom)
+        } else {
+            rect = sender.window?.frame ?? .zero
+        }
+        anchor.setFrame(rect, display: false)
+        anchor.orderFrontRegardless()
+        popover.show(relativeTo: anchor.contentView!.bounds, of: anchor.contentView!, preferredEdge: .minY)
+        sender.highlight(true)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
+        updateDetailed()
     }
 
-    func popoverDidClose(_ notification: Notification) { updateDetailed() }
+    func popoverDidClose(_ notification: Notification) {
+        lastClose = Date()
+        anchor.orderOut(nil)
+        statusItem.button?.highlight(false)
+        updateDetailed()
+    }
 
     private func updateDetailed() {
         monitor.detailed = popover.isShown || Toolbox.shared.visible
