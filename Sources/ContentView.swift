@@ -6,6 +6,8 @@ struct ContentView: View {
     @ObservedObject var settings = Settings.shared
     @ObservedObject var power: PowerAssertions
     @ObservedObject var fan: FanController
+    @ObservedObject var priv = Privileged.shared
+    @ObservedObject var updater = Updater.shared
 
     var body: some View {
         VStack(spacing: 8) {
@@ -167,7 +169,7 @@ struct ContentView: View {
                 .disabled(fan.busy)
                 .padding(.top, 6)
             }
-            .help("Cool = 70% of max speed, Max = 100%. Requires your admin password once per session.\nFans return to automatic control when StatBar quits.")
+            .help("Cool = 70% of max speed (Max when CPU > 90°C), Max = 100%.\nNeeds Touch ID / admin password. Fans return to automatic control when StatBar quits.")
         } else {
             Card {
                 CardHeader(icon: "thermometer.medium", title: "Thermals", color: .fanC, tag: "Fanless")
@@ -218,8 +220,6 @@ struct ContentView: View {
 
     // MARK: controls
 
-    @State private var purgeMsg: String?
-    @State private var dnsMsg: String?
 
     private var controlsCard: some View {
         Card {
@@ -238,17 +238,13 @@ struct ContentView: View {
             }
             Divider().padding(.vertical, 8)
             HStack(spacing: 2) {
-                ToolTile(icon: "memorychip", title: "Free RAM", subtitle: purgeMsg) {
-                    purgeMsg = "…"
-                    Tools.purgeMemory { ok in purgeMsg = ok ? "Done ✓" : "Cancelled"; m.refreshNow() }
+                ForEach([ToolboxTab.clean, .uninstall, .optimize, .analyze]) { t in
+                    ToolTile(icon: t.icon, title: t.title, subtitle: nil) {
+                        NotificationCenter.default.post(name: .statbarClosePopover, object: nil)
+                        Toolbox.shared.open(t)
+                    }
+                    .help(t.subtitle)
                 }
-                .help("Purge inactive / file cache memory (asks for admin password)")
-                ToolTile(icon: "network", title: "Flush DNS", subtitle: dnsMsg) {
-                    dnsMsg = "…"
-                    Tools.flushDNS { ok in dnsMsg = ok ? "Done ✓" : "Cancelled" }
-                }
-                ToolTile(icon: "waveform.path.ecg", title: "Activity", subtitle: "Monitor") { Tools.openActivityMonitor() }
-                ToolTile(icon: "internaldrive", title: "Storage", subtitle: "Settings") { Tools.openStorageSettings() }
             }
         }
     }
@@ -279,19 +275,75 @@ struct ContentView: View {
                 }
                 Toggle("Fahrenheit", isOn: $settings.fahrenheit)
                 Toggle("Launch at login", isOn: Binding(get: { LoginItem.enabled }, set: { LoginItem.set($0) }))
+                switch priv.status {
+                case .ready: Button("Disable Touch ID for admin actions…") { priv.uninstall() }
+                case .outdated: Button("Update Touch ID helper…") { priv.install() }
+                case .notInstalled: Button("Use Touch ID for admin actions…") { priv.install() }
+                }
+                Divider()
+                Section("StatBar \(updater.current)") {
+                    if updater.updateAvailable, let v = updater.latest {
+                        Button("Download StatBar \(v)…") { updater.openDownload() }
+                    }
+                    Button(updater.state == .checking ? "Checking for Updates…" : "Check for Updates") { updater.check(manual: true) }
+                        .disabled(updater.state == .checking)
+                    Toggle("Check Automatically", isOn: $updater.autoCheck)
+                }
                 Divider()
                 Button("Quit StatBar") { NSApp.terminate(nil) }
             } label: {
                 Image(systemName: "gearshape.fill")
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .overlay(alignment: .topTrailing) {
+                if updater.updateAvailable { Circle().fill(Color.blue).frame(width: 6, height: 6).offset(x: 2, y: -1) }
+            }
             Spacer()
-            Text("StatBar").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
+            versionBadge
             Spacer()
             Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
                 .buttonStyle(.plain).foregroundStyle(.secondary).help("Quit StatBar")
         }
         .padding(.horizontal, 6)
+    }
+
+    /// "StatBar 1.0.0" — becomes a download link when GitHub has a newer release.
+    @ViewBuilder private var versionBadge: some View {
+        switch updater.state {
+        case .available:
+            Button { updater.openDownload() } label: {
+                Label("Update \(updater.latest ?? "")", systemImage: "arrow.down.circle.fill")
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill(Color.blue))
+            }
+            .buttonStyle(.plain)
+            .help("StatBar \(updater.latest ?? "") is available (you have \(updater.current)). Click to download.")
+        default:
+            Button { updater.check(manual: true) } label: {
+                HStack(spacing: 4) {
+                    Text("StatBar \(updater.current)")
+                    switch updater.state {
+                    case .checking: ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 10, height: 10)
+                    case .upToDate: Image(systemName: "checkmark.circle")
+                    case .failed: Image(systemName: "exclamationmark.circle")
+                    default: EmptyView()
+                    }
+                }
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help(versionHelp)
+        }
+    }
+
+    private var versionHelp: String {
+        switch updater.state {
+        case .upToDate: "Up to date. Click to check again."
+        case .failed(let msg): "Update check failed: \(msg). Click to retry."
+        case .checking: "Checking GitHub for updates…"
+        default: "Click to check for updates"
+        }
     }
 }
 

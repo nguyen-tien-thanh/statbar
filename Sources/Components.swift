@@ -168,7 +168,7 @@ struct ToolTile: View {
             VStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 14, weight: .medium))
                 Text(title).font(.system(size: 10.5, weight: .medium)).lineLimit(1)
-                Text(subtitle ?? " ").font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                if let subtitle { Text(subtitle).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1) }
             }
             .frame(maxWidth: .infinity).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(hover ? 0.1 : 0.0)))

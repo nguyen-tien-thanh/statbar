@@ -17,19 +17,19 @@ if [ "$ARCH" = universal ]; then ARCHS="arm64 x86_64"; else ARCHS="$ARCH"; fi
 for A in $ARCHS; do
   echo "▸ Compiling ($A)"
   clang -O2 -arch $A -mmacosx-version-min=$MIN -c Bridge/smc.c -o $OBJ/smc-$A.o
-  clang -O2 -arch $A -mmacosx-version-min=$MIN Helper/fan.c $OBJ/smc-$A.o -framework IOKit -o $OBJ/statbar-fan-$A
+  clang -O2 -arch $A -mmacosx-version-min=$MIN Helper/helper.c $OBJ/smc-$A.o -framework IOKit -framework CoreFoundation -o $OBJ/statbar-helper-$A
   swiftc -O -whole-module-optimization -swift-version 5 \
     -target $A-apple-macos$MIN \
     -import-objc-header Bridge/Bridge.h \
     Sources/*.swift $OBJ/smc-$A.o \
     -framework IOKit -framework CoreWLAN -framework SystemConfiguration \
-    -framework CoreAudio -framework CoreMediaIO -framework ServiceManagement \
+    -framework CoreAudio -framework CoreMediaIO -framework ServiceManagement -framework LocalAuthentication \
     -o $OBJ/$APP-$A
 done
 
 lipo -create $(for A in $ARCHS; do echo $OBJ/$APP-$A; done) -output "$BUNDLE/Contents/MacOS/$APP"
-lipo -create $(for A in $ARCHS; do echo $OBJ/statbar-fan-$A; done) -output "$BUNDLE/Contents/MacOS/statbar-fan"
-strip -x "$BUNDLE/Contents/MacOS/$APP" "$BUNDLE/Contents/MacOS/statbar-fan"
+lipo -create $(for A in $ARCHS; do echo $OBJ/statbar-helper-$A; done) -output "$BUNDLE/Contents/MacOS/statbar-helper"
+strip -x "$BUNDLE/Contents/MacOS/$APP" "$BUNDLE/Contents/MacOS/statbar-helper"
 
 cp Resources/Info.plist "$BUNDLE/Contents/Info.plist"
 

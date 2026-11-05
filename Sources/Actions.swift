@@ -66,30 +66,15 @@ final class FanController: ObservableObject {
     @Published private(set) var mode: FanMode = .auto
     @Published private(set) var busy = false
 
-    private let modeFile: URL = FileManager.default.temporaryDirectory.appendingPathComponent("statbar-fan-mode")
-    private var helperPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/statbar-fan").path }
-
-    private var helperRunning: Bool {
-        guard let s = try? String(contentsOf: URL(fileURLWithPath: modeFile.path + ".pid"), encoding: .utf8),
-              let pid = pid_t(s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
-        return kill(pid, 0) == 0 || errno == EPERM
-    }
-
     func set(_ m: FanMode) {
         guard m != mode, !busy else { return }
-        try? m.rawValue.write(to: modeFile, atomically: true, encoding: .utf8)
-        if m == .auto || helperRunning { mode = m; return }   // helper picks up the file change
         busy = true
-        let cmd = "\(Admin.shellQuote(helperPath)) \(getpid()) \(Admin.shellQuote(modeFile.path)) > /dev/null 2>&1 &"
-        Admin.run(cmd) { [weak self] ok in
-            guard let self else { return }
-            self.busy = false
-            if ok { self.mode = m } else { try? FanMode.auto.rawValue.write(to: self.modeFile, atomically: true, encoding: .utf8) }
+        let args = m == .auto ? ["fan", "auto"] : ["fan", m.rawValue, String(getpid())]
+        Privileged.shared.run(args, reason: "change the fan speed") { [weak self] ok in
+            self?.busy = false
+            if ok { self?.mode = m }
         }
     }
-
-    /// Called on quit: helper notices our pid is gone and restores auto; also write auto for a faster reset.
-    func reset() { try? FanMode.auto.rawValue.write(to: modeFile, atomically: true, encoding: .utf8) }
 }
 
 // MARK: - Login item
@@ -110,9 +95,11 @@ enum LoginItem {
 // MARK: - Misc tools
 
 enum Tools {
-    static func purgeMemory(done: @escaping (Bool) -> Void) { Admin.run("/usr/sbin/purge", completion: done) }
+    static func purgeMemory(done: @escaping (Bool) -> Void) {
+        Privileged.shared.run(["purge"], reason: "free up inactive memory", completion: done)
+    }
     static func flushDNS(done: @escaping (Bool) -> Void) {
-        Admin.run("/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder", completion: done)
+        Privileged.shared.run(["flushdns"], reason: "flush the DNS cache", completion: done)
     }
     static func openActivityMonitor() {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))

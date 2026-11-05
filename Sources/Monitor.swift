@@ -184,7 +184,10 @@ final class Monitor: ObservableObject {
     }
 }
 
-extension Notification.Name { static let statbarTick = Notification.Name("statbarTick") }
+extension Notification.Name {
+    static let statbarTick = Notification.Name("statbarTick")
+    static let statbarClosePopover = Notification.Name("statbarClosePopover")
+}
 
 // MARK: - Formatting
 
