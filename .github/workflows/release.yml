@@ -26,6 +26,9 @@ jobs:
         run: |
           cat > notes.md <<'EOF'
           ### Install
+          **Homebrew:** `brew install --cask nguyen-tien-thanh/tap/statbar`
+
+          **Manual:**
           1. Download **StatBar.dmg** below, open it and drag StatBar into Applications.
           2. Open StatBar once and click **Done** on the macOS warning.
           3. Open **Hướng dẫn cài đặt** in the DMG, click **Mở Privacy & Security**, then **Open Anyway**
@@ -38,3 +41,22 @@ jobs:
           # StatBar.zip is what the in-app updater downloads
           gh release create "$GITHUB_REF_NAME" build/StatBar.dmg build/StatBar.zip \
             --title "StatBar ${GITHUB_REF_NAME#v}" --notes-file notes.md --generate-notes --verify-tag
+
+      # Bumps Casks/statbar.rb in nguyen-tien-thanh/homebrew-tap (deploy key with write access to that repo only).
+      - name: Update Homebrew cask
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$TAP_DEPLOY_KEY" ]; then echo "TAP_DEPLOY_KEY not set – skipping"; exit 0; fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA=$(shasum -a 256 build/StatBar.dmg | cut -d' ' -f1)
+          mkdir -p ~/.ssh && printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap && chmod 600 ~/.ssh/tap
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:nguyen-tien-thanh/homebrew-tap.git tap
+          cd tap
+          sed -i '' -E "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/" Casks/statbar.rb
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "statbar $VERSION" || { echo "cask already at $VERSION"; exit 0; }
+          git push

@@ -29,12 +29,13 @@ enum SystemInfo {
         return size == 4 ? Int(Int32(truncatingIfNeeded: v)) : Int(v)
     }
 
-    static let chip: String = {
+    // `var` only so `--readme-shots` can show demo values; nothing else writes these.
+    static var chip: String = {
         let s = sysctlString("machdep.cpu.brand_string") ?? "Mac"
         return s.replacingOccurrences(of: "Apple ", with: "")
     }()
-    static let memTotal: UInt64 = ProcessInfo.processInfo.physicalMemory
-    static let osVersion: String = {
+    static var memTotal: UInt64 = ProcessInfo.processInfo.physicalMemory
+    static var osVersion: String = {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         return v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
     }()

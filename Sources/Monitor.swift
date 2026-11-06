@@ -154,6 +154,9 @@ final class Monitor: ObservableObject {
 
     func refreshNow() { queue.async { self.tick(full: true) } }
 
+    /// Stops sampling (used by `--readme-shots`, which fills in demo values instead).
+    func stop() { timer?.cancel(); timer = nil }
+
     private func tick(full: Bool) {
         if !full { tickCount += 1 }
         let items = Settings.shared.menuItems

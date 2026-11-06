@@ -162,6 +162,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 }
 
+// `StatBar --readme-shots docs/` renders the README screenshots with demo data and exits.
+if let i = CommandLine.arguments.firstIndex(of: "--readme-shots"), i + 1 < CommandLine.arguments.count {
+    let dir = CommandLine.arguments[i + 1]
+    NSApplication.shared.setActivationPolicy(.prohibited)
+    DispatchQueue.main.async { MainActor.assumeIsolated { ReadmeShots.run(dir: dir) } }
+    NSApplication.shared.run()
+}
+
 // Debug: `StatBar --snapshot out.png` renders the popover + menu bar label to PNG files and exits.
 if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
     let out = CommandLine.arguments[i + 1]
