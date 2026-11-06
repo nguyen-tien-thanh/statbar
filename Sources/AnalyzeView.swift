@@ -298,14 +298,18 @@ struct AnalyzeView: View {
                         .foregroundStyle(.secondary).frame(width: 16)
                     Text(n.name).font(.system(size: 12, weight: isMarked(n) ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    if hovered == n.id && !n.isAggregate {
-                        HStack(spacing: 2) {
-                            RowAction(icon: "magnifyingglass", help: "Reveal in Finder") { FSUtil.reveal(n.path) }
-                            if a.protectionReason(n) == nil && coveringAncestor(n) == nil {
-                                RowAction(icon: "trash", help: "Move to Trash…", tint: .red) { pendingTrash = [n] }
-                            }
-                        }
+                    // Always laid out (fixed width) and only faded in on hover, so hovering never changes the
+                    // row's size or shifts the columns – inserting them on hover made the list jump.
+                    let showActions = hovered == n.id && !n.isAggregate
+                    HStack(spacing: 2) {
+                        RowAction(icon: "magnifyingglass", help: "Reveal in Finder") { FSUtil.reveal(n.path) }
+                        RowAction(icon: "trash", help: "Move to Trash…", tint: .red) { pendingTrash = [n] }
+                            .opacity(canSelect(n) ? 1 : 0)
+                            .allowsHitTesting(canSelect(n))
                     }
+                    .frame(width: 46, alignment: .trailing)
+                    .opacity(showActions ? 1 : 0)
+                    .allowsHitTesting(showActions)
                     let frac = cur.size > 0 ? Double(n.size) / Double(cur.size) : 0
                     Meter(fraction: frac, color: palette[i % palette.count], height: 5).frame(width: 90)
                     Text(String(format: "%.0f%%", frac * 100)).font(.system(size: 10)).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
@@ -313,8 +317,8 @@ struct AnalyzeView: View {
                     if n.canDrill { Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.tertiary) }
                     else { Color.clear.frame(width: 7) }
                 }
+                .frame(height: 22)
                 .contentShape(Rectangle())
-                .padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 5).fill(
                     isMarked(n) ? Color.accentColor.opacity(0.14) : hovered == n.id ? Color.primary.opacity(0.06) : .clear))
                 .onHover { hovered = $0 ? n.id : (hovered == n.id ? nil : hovered) }
