@@ -155,6 +155,93 @@ final class DiskAnalyzer: ObservableObject {
     }
 }
 
+// MARK: - Selection, trash and undo
+
+/// An item moved to the Trash from the analyzer, with what's needed to put it back.
+struct TrashedItem {
+    let node: DiskNode
+    let parent: DiskNode          // strong: keeps the subtree alive for undo
+    let original: URL
+    let trashed: URL
+}
+
+extension DiskAnalyzer {
+    /// Folders that must never be offered for deletion (their contents still can be).
+    static let protectedPaths: Set<String> = {
+        var s: Set<String> = ["/", "/System", "/Library", "/Applications", "/Users", "/usr", "/bin", "/sbin",
+                              "/private", "/etc", "/var", "/tmp", "/opt", "/Volumes", "/cores", "/dev"]
+        for d in ["", "/Library", "/Desktop", "/Documents", "/Downloads", "/Pictures", "/Music", "/Movies",
+                  "/Public", "/Applications"] { s.insert(FSUtil.home + d) }
+        return s
+    }()
+
+    /// Why `n` can't be selected for deletion, or nil if it can.
+    func protectionReason(_ n: DiskNode) -> String? {
+        if n.isAggregate { return "Small items grouped together – open the folder to pick them" }
+        if n.parent == nil { return "This is the folder being analyzed" }
+        if Self.protectedPaths.contains(n.path) || n.path.hasPrefix("/System/") { return "Protected system folder" }
+        if !FSUtil.isWritableParent(n.path) { return "You don't have permission to move this item" }
+        return nil
+    }
+
+    /// Moves nodes to the Trash and detaches them from the tree. Nodes inside another selected node are skipped
+    /// (they go with their ancestor).
+    func moveToTrash(_ nodes: [DiskNode]) -> (moved: [TrashedItem], failed: [DiskNode]) {
+        let ids = Set(nodes.map(\.id))
+        let top = nodes.filter { n in
+            var p = n.parent
+            while let x = p { if ids.contains(x.id) { return false }; p = x.parent }
+            return true
+        }
+        var moved: [TrashedItem] = [], failed: [DiskNode] = []
+        for n in top {
+            guard protectionReason(n) == nil, let parent = n.parent else { failed.append(n); continue }
+            var result: NSURL?
+            do {
+                try FileManager.default.trashItem(at: URL(fileURLWithPath: n.path), resultingItemURL: &result)
+            } catch { failed.append(n); continue }
+            detach(n, from: parent)
+            if let r = result as URL? { moved.append(TrashedItem(node: n, parent: parent, original: URL(fileURLWithPath: n.path), trashed: r)) }
+        }
+        // don't leave the view inside something that's gone
+        if let cur = current, moved.contains(where: { isAncestor($0.node, of: cur) }) {
+            current = moved.first { isAncestor($0.node, of: cur) }?.parent
+        }
+        objectWillChange.send()
+        return (moved, failed)
+    }
+
+    /// Puts trashed items back where they were. Returns how many were restored.
+    @discardableResult
+    func restore(_ items: [TrashedItem]) -> Int {
+        var ok = 0
+        for it in items {
+            guard !FileManager.default.fileExists(atPath: it.original.path),
+                  (try? FileManager.default.moveItem(at: it.trashed, to: it.original)) != nil else { continue }
+            let i = it.parent.children.firstIndex { $0.isAggregate || $0.size < it.node.size } ?? it.parent.children.count
+            it.parent.children.insert(it.node, at: i)
+            var p: DiskNode? = it.parent
+            while let x = p { x.size += it.node.size; p = x.parent }
+            ok += 1
+        }
+        objectWillChange.send()
+        return ok
+    }
+
+    private func detach(_ n: DiskNode, from parent: DiskNode) {
+        parent.children.removeAll { $0 === n }
+        var p: DiskNode? = parent
+        while let x = p { x.size -= n.size; p = x.parent }
+    }
+
+    /// true if `a` is `b` or one of its ancestors.
+    func isAncestor(_ a: DiskNode, of b: DiskNode) -> Bool {
+        var n: DiskNode? = b
+        while let x = n { if x === a { return true }; n = x.parent }
+        return false
+    }
+}
+
 // MARK: - Squarified treemap
 
 enum Treemap {
