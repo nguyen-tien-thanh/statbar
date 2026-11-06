@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import Security
 
 /// Replaces the running StatBar.app with the one inside a downloaded release DMG.
 /// Every step is checked; on any failure the current app is left untouched.
@@ -68,6 +69,14 @@ enum UpdateInstaller {
         guard run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path]) == 0 else {
             throw Failure(message: "Update's code signature is invalid")
         }
+        // Signed by the same certificate as this copy (skipped while running an ad-hoc build).
+        if let req = designatedRequirement(of: target) {
+            var code: SecStaticCode?
+            guard SecStaticCodeCreateWithPath(newApp as CFURL, [], &code) == errSecSuccess, let code,
+                  SecStaticCodeCheckValidity(code, [], req) == errSecSuccess else {
+                throw Failure(message: "Update isn't signed by StatBar's certificate")
+            }
+        }
 
         // 4. Stage it next to the current app (same volume) so the later swap is atomic.
         let staged = work.appendingPathComponent(target.lastPathComponent)
@@ -75,6 +84,15 @@ enum UpdateInstaller {
         _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
         keepWork = true
         return staged
+    }
+
+    /// The app's designated requirement, or nil for ad-hoc signatures (those pin one exact build).
+    static func designatedRequirement(of app: URL) -> SecRequirement? {
+        var code: SecStaticCode?, req: SecRequirement?, text: CFString?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
+              SecCodeCopyDesignatedRequirement(code, [], &req) == errSecSuccess, let req,
+              SecRequirementCopyString(req, [], &text) == errSecSuccess, let text else { return nil }
+        return (text as String).contains("cdhash") ? nil : req
     }
 
     /// Atomically replace the running app's bundle with a staged copy from `prepare`.

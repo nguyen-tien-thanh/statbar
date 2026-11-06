@@ -43,8 +43,28 @@ echo "▸ Icon"
 swift scripts/make_icon.swift $OBJ/AppIcon.iconset
 iconutil -c icns $OBJ/AppIcon.iconset -o "$BUNDLE/Contents/Resources/AppIcon.icns"
 
-echo "▸ Signing (ad-hoc)"
-codesign --force --deep --sign - "$BUNDLE"
+# Signed with a fixed self-signed certificate when available, so macOS privacy permissions (Full Disk
+# Access, Desktop/Documents…) survive updates – with ad-hoc signing every build looks like a new app.
+#   SIGN_KEYCHAIN / SIGN_KEYCHAIN_PASSWORD: set by CI; locally ~/Library/Keychains/statbar-signing.keychain-db
+#   whose password is in the login keychain ("statbar-signing-keychain").
+SIGN_ID=${SIGN_IDENTITY:-0CD98171717D821BE5683D97763233B8E7075AB3}   # SHA-1 of "StatBar Self-Signed"
+SIGN_KC=${SIGN_KEYCHAIN:-$HOME/Library/Keychains/statbar-signing.keychain-db}
+if [ -f "$SIGN_KC" ]; then
+    echo "▸ Signing (StatBar Self-Signed)"
+    KCPASS=${SIGN_KEYCHAIN_PASSWORD:-$(security find-generic-password -s statbar-signing-keychain -w)}
+    security unlock-keychain -p "$KCPASS" "$SIGN_KC"
+    # codesign only finds identities in the search list: add the keychain for this one call, then restore
+    OLD_KCS=()
+    while IFS= read -r k; do k=${k#*\"}; OLD_KCS+=("${k%\"*}"); done < <(security list-keychains -d user)
+    restore_kcs() { security list-keychains -d user -s "${OLD_KCS[@]}"; }
+    trap restore_kcs EXIT
+    security list-keychains -d user -s "${OLD_KCS[@]}" "$SIGN_KC"
+    codesign --force --deep --sign "$SIGN_ID" "$BUNDLE"
+    restore_kcs; trap - EXIT
+else
+    echo "▸ Signing (ad-hoc – no signing keychain; privacy permissions won't survive updates)"
+    codesign --force --deep --sign - "$BUNDLE"
+fi
 
 echo "▸ DMG"
 GUIDE="Hướng dẫn cài đặt.html"

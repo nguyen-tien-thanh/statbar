@@ -17,8 +17,34 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Every release is signed with the same self-signed certificate so macOS keeps StatBar's privacy
+      # permissions across updates (and the in-app updater can require that signature).
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.STATBAR_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.STATBAR_CERT_PASSWORD }}
+        run: |
+          if [ -z "$CERT_P12" ]; then echo "STATBAR_CERT_P12 not set – building ad-hoc"; exit 0; fi
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KCPASS=$(openssl rand -hex 24); echo "::add-mask::$KCPASS"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KCPASS" "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p "$KCPASS" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$CERT_PASSWORD" -T /usr/bin/codesign -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KC" > /dev/null
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "SIGN_KEYCHAIN=$KC" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN_PASSWORD=$KCPASS" >> "$GITHUB_ENV"
+
       - name: Build StatBar.app + StatBar.dmg + StatBar.zip
-        run: VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${{ github.run_number }}" ./build.sh
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${{ github.run_number }}" ./build.sh
+          codesign -dr - build/StatBar.app
+          # a release must never fall back to ad-hoc once the certificate is configured
+          if [ -n "${SIGN_KEYCHAIN:-}" ]; then
+            codesign -dr - build/StatBar.app 2>&1 | grep -q 'certificate root = H"0cd98171717d821be5683d97763233b8e7075ab3"'
+          fi
 
       - name: Publish GitHub release
         env:
