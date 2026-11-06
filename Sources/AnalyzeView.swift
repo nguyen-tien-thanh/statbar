@@ -11,6 +11,8 @@ struct AnalyzeView: View {
     @State private var pendingTrash: [DiskNode] = []
     @State private var toast: TrashToast?
     @State private var dropTarget = false
+    /// Recently scanned folders, newest first (newline-separated).
+    @AppStorage("analyzeRecent") private var recentRaw = ""
 
     /// Name of the startup disk ("Macintosh HD"). Scanning it covers Home too (/Users is part of it).
     static let diskName = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeLocalizedNameKey]))?.volumeLocalizedName ?? "Macintosh HD"
@@ -22,12 +24,12 @@ struct AnalyzeView: View {
             PaneHeader(tab: .analyze, subtitle: "Scan your whole disk or any folder. Drop a folder here to scan it.") {
                 HStack(spacing: 6) {
                     if let r = a.root {
-                        Button { a.scan(r.path) } label: { Image(systemName: "arrow.clockwise") }
+                        Button { scan(r.path) } label: { Image(systemName: "arrow.clockwise") }
                             .help("Scan \(label(r)) again")
                     }
-                    Button { a.scan("/") } label: { Label("Scan Disk", systemImage: "internaldrive") }
+                    Button { scan("/") } label: { Label("Scan Disk", systemImage: "internaldrive") }
                         .help("Scan all of \(Self.diskName), including your Home folder")
-                    Button { choose() } label: { Label("Choose Folder…", systemImage: "folder") }
+                    folderMenu
                 }
                 .disabled(a.scanning)
             }
@@ -65,11 +67,9 @@ struct AnalyzeView: View {
                     Text("See what's using your disk").font(.headline)
                     Text("Scans all of \(Self.diskName), including your Home folder – or pick any folder (or drop one here).\nmacOS may ask for access to Desktop, Documents and Downloads.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    HStack {
-                        Button { a.scan("/") } label: { Label("Scan Disk", systemImage: "internaldrive") }.buttonStyle(.borderedProminent)
-                        Button { choose() } label: { Label("Choose Folder…", systemImage: "folder") }
-                    }
-                    .controlSize(.large)
+                    Button { scan("/") } label: { Label("Scan \(Self.diskName)", systemImage: "internaldrive") }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                    quickPick.padding(.top, 6)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -80,7 +80,7 @@ struct AnalyzeView: View {
                 guard let url else { return }
                 var isDir: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return }
-                DispatchQueue.main.async { a.scan(url.path) }
+                DispatchQueue.main.async { scan(url.path) }
             }
             return true
         }
@@ -208,12 +208,77 @@ struct AnalyzeView: View {
         }
     }
 
+    /// Fallback for folders not in the quick menu. Shown as a sheet so it doesn't block the window
+    /// (the old `runModal()` froze the app while the out-of-process panel loaded).
     private func choose() {
         let p = NSOpenPanel()
         p.canChooseDirectories = true; p.canChooseFiles = false; p.allowsMultipleSelection = false
-        p.directoryURL = URL(fileURLWithPath: FSUtil.home)
+        p.directoryURL = URL(fileURLWithPath: a.root?.path ?? FSUtil.home)
         p.prompt = "Scan"; p.message = "Choose a folder to analyze"
-        if p.runModal() == .OK, let u = p.url { a.scan(u.path) }
+        let done: (NSApplication.ModalResponse) -> Void = { r in if r == .OK, let u = p.url { scan(u.path) } }
+        if let w = NSApp.keyWindow { p.beginSheetModal(for: w, completionHandler: done) } else { p.begin(completionHandler: done) }
+    }
+
+    /// Scans and remembers the folder in Recent.
+    private func scan(_ path: String) {
+        if path != "/" {
+            recentRaw = ([path] + recent.filter { $0 != path }).prefix(6).joined(separator: "\n")
+        }
+        a.scan(path)
+    }
+
+    private var recent: [String] { recentRaw.split(separator: "\n").map(String.init).filter(FSUtil.exists) }
+
+    // MARK: quick folder picker
+
+    /// Header menu: common folders, mounted volumes and recent scans open instantly – no file panel.
+    private var folderMenu: some View {
+        Menu {
+            Section("Folders") {
+                ForEach(ScanLocation.folders) { l in Button { scan(l.path) } label: { Label(l.name, systemImage: l.icon) } }
+            }
+            let vols = ScanLocation.volumes()
+            if !vols.isEmpty {
+                Section("Volumes") {
+                    ForEach(vols) { l in Button { scan(l.path) } label: { Label(l.name, systemImage: l.icon) } }
+                }
+            }
+            if !recent.isEmpty {
+                Section("Recent") {
+                    ForEach(recent, id: \.self) { p in
+                        Button { scan(p) } label: { Label(FSUtil.tilde(p), systemImage: "clock.arrow.circlepath") }
+                    }
+                    Button("Clear Recent") { recentRaw = "" }
+                }
+            }
+            Divider()
+            Button { choose() } label: { Label("Other Folder…", systemImage: "folder.badge.questionmark") }
+        } label: {
+            Label("Scan Folder", systemImage: "folder")
+        }
+        .fixedSize()
+        .help("Scan a common folder, a drive or a recent one – or drop a folder on this window")
+    }
+
+    /// Empty state: one-click tiles for the usual suspects.
+    private var quickPick: some View {
+        let items = ScanLocation.folders + ScanLocation.volumes()
+        return VStack(spacing: 8) {
+            Text("Or scan a folder").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(118), spacing: 8), count: 4), spacing: 8) {
+                ForEach(items) { l in QuickPickTile(location: l) { scan(l.path) } }
+                QuickPickTile(location: ScanLocation(path: "", name: "Other…", icon: "ellipsis.circle")) { choose() }
+            }
+            if !recent.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Recent:").foregroundStyle(.secondary)
+                    ForEach(recent.prefix(3), id: \.self) { p in
+                        Button(FSUtil.tilde(p)) { scan(p) }.buttonStyle(.link).lineLimit(1)
+                    }
+                }
+                .font(.system(size: 11)).padding(.top, 4)
+            }
+        }
     }
 
     private var breadcrumb: some View {
@@ -387,5 +452,61 @@ private struct RowAction: View {
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(hover ? 0.1 : 0)))
         }
         .buttonStyle(.plain).onHover { hover = $0 }.help(help)
+    }
+}
+
+/// A folder or volume offered for one-click scanning.
+struct ScanLocation: Identifiable {
+    var id: String { path + name }
+    let path: String
+    let name: String
+    let icon: String
+
+    /// Standard folders that exist on this Mac.
+    static var folders: [ScanLocation] {
+        let h = FSUtil.home
+        return [
+            ScanLocation(path: h, name: "Home", icon: "house"),
+            ScanLocation(path: h + "/Desktop", name: "Desktop", icon: "menubar.dock.rectangle"),
+            ScanLocation(path: h + "/Documents", name: "Documents", icon: "doc"),
+            ScanLocation(path: h + "/Downloads", name: "Downloads", icon: "arrow.down.circle"),
+            ScanLocation(path: "/Applications", name: "Applications", icon: "square.grid.2x2"),
+            ScanLocation(path: h + "/Library", name: "Library", icon: "building.columns"),
+            ScanLocation(path: h + "/Movies", name: "Movies", icon: "film"),
+            ScanLocation(path: h + "/Developer", name: "Developer", icon: "hammer"),
+        ].filter { FSUtil.exists($0.path) }
+    }
+
+    /// Mounted, browsable volumes other than the startup disk.
+    static func volumes() -> [ScanLocation] {
+        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsRootFileSystemKey, .volumeIsBrowsableKey, .volumeIsRemovableKey]
+        let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
+        return urls.compactMap { u in
+            guard let v = try? u.resourceValues(forKeys: Set(keys)), v.volumeIsRootFileSystem != true,
+                  v.volumeIsBrowsable != false, u.path.hasPrefix("/Volumes/") else { return nil }
+            return ScanLocation(path: u.path, name: v.volumeLocalizedName ?? u.lastPathComponent,
+                                icon: v.volumeIsRemovable == true ? "externaldrive" : "internaldrive")
+        }
+    }
+}
+
+private struct QuickPickTile: View {
+    let location: ScanLocation
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: location.icon).font(.system(size: 17, weight: .medium)).foregroundStyle(Color.accentColor)
+                Text(location.name).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+            }
+            .frame(width: 118, height: 58)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(hover ? 0.1 : 0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(location.path.isEmpty ? "Choose any folder" : FSUtil.tilde(location.path))
     }
 }

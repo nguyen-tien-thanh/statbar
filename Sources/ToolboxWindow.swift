@@ -48,6 +48,9 @@ final class Toolbox: NSObject, ObservableObject, NSWindowDelegate {
 
     func open(_ t: ToolboxTab) {
         tab = t
+        // Become a regular app *before* the window exists/appears: windows of an agent (menu bar) app are
+        // allowed to float over another app's full-screen Space, which is where the toolbox used to open.
+        NSApp.setActivationPolicy(.regular)
         if window == nil, let monitor, let power, let fan {
             let view = ToolboxView(tb: self, monitor: monitor, power: power, fan: fan)
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
@@ -57,13 +60,16 @@ final class Toolbox: NSObject, ObservableObject, NSWindowDelegate {
             w.titlebarAppearsTransparent = true
             w.contentView = NSHostingView(rootView: view)
             w.minSize = NSSize(width: 780, height: 520)
+            // A normal desktop window: never joins someone else's full-screen Space (macOS switches to the
+            // desktop instead); it can still be made full screen on purpose with the green button.
+            w.collectionBehavior = [.managed, .participatesInCycle, .fullScreenPrimary]
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.center()
             w.setFrameAutosaveName("StatBarToolbox")
             window = w
         }
-        NSApp.setActivationPolicy(.regular)
+        if let w = window, w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil) }   // reopen windowed
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         visible = true
