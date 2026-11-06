@@ -65,6 +65,12 @@ struct SettingsPage: View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("Display")
             Surface(padding: 12) {
+                SettingRow(title: "Theme") {
+                    Segmented(options: [("system", "System"), ("light", "Light"), ("dark", "Dark")], selection: settings.theme, compact: true) {
+                        settings.theme = $0
+                    }
+                }
+                Divider()
                 SettingRow(title: "Refresh every") {
                     Segmented(options: [(1.0, "1s"), (2.0, "2s"), (3.0, "3s"), (5.0, "5s")], selection: settings.interval, compact: true) {
                         settings.interval = $0
@@ -149,7 +155,7 @@ struct SettingsPage: View {
                     .padding(.bottom, 4)
                 }
                 Divider().padding(.vertical, 4)
-                SettingRow(title: "Check automatically", subtitle: "Looks for new GitHub releases every few hours") {
+                SettingRow(title: "Check automatically", subtitle: "Looks for new GitHub releases every hour") {
                     Toggle("", isOn: $updater.autoCheck).toggleStyle(.switch).controlSize(.small).labelsHidden()
                 }
             }

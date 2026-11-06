@@ -29,6 +29,8 @@ final class Settings: ObservableObject {
     @Published var interval: Double { didSet { d.set(interval, forKey: "interval") } }
     @Published var processSort: String { didSet { d.set(processSort, forKey: "processSort") } }
     @Published var fahrenheit: Bool { didSet { d.set(fahrenheit, forKey: "fahrenheit") } }
+    /// "system" | "light" | "dark" – applies to the popover and the toolbox window.
+    @Published var theme: String { didSet { d.set(theme, forKey: "theme"); applyTheme() } }
 
     private init() {
         let items = d.stringArray(forKey: "menuItems") ?? ["cpu", "mem", "net"]
@@ -36,6 +38,16 @@ final class Settings: ObservableObject {
         let i = d.double(forKey: "interval"); interval = i > 0 ? i : 2
         processSort = d.string(forKey: "processSort") ?? "cpu"
         fahrenheit = d.bool(forKey: "fahrenheit")
+        theme = d.string(forKey: "theme") ?? "system"
+    }
+
+    /// Call on the main thread (launch, and whenever `theme` changes from the UI).
+    func applyTheme() {
+        NSApp.appearance = switch theme {
+        case "light": NSAppearance(named: .aqua)
+        case "dark": NSAppearance(named: .darkAqua)
+        default: nil    // follow macOS
+        }
     }
 
     func temp(_ c: Double?) -> String {
