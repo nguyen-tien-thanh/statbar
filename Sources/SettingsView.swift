@@ -6,8 +6,12 @@ struct SettingsPage: View {
     @ObservedObject var settings: Settings
     @ObservedObject var priv: Privileged
     @ObservedObject var updater: Updater
+    /// The page stays in the popover's hierarchy while hidden; this says whether it is on screen.
+    var visible = true
     let back: () -> Void
-    @State private var launchAtLogin = LoginItem.enabled
+    // Not read in the initializer: the page is re-created on every parent update (each tick) and
+    // asking SMAppService that often is wasteful. Refreshed whenever the page is shown.
+    @State private var launchAtLogin = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,16 +20,20 @@ struct SettingsPage: View {
             displaySection
             generalSection
             updatesSection
+            Spacer(minLength: 0)
             footer
         }
         .padding(12)
-        .onExitCommand(perform: back)   // Esc goes back
+        .frame(maxHeight: .infinity, alignment: .top)   // fill the main page's height; footer sits at the bottom
+        .onExitCommand(perform: visible ? back : nil)   // Esc goes back
+        .onAppear { launchAtLogin = LoginItem.enabled }
+        .onChange(of: visible) { if $0 { launchAtLogin = LoginItem.enabled } }
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             CircleIconButton(icon: "chevron.left", help: "Back", action: back)
-                .keyboardShortcut(.cancelAction)
+                .keyboardShortcut(visible ? .cancelAction : nil)
             Text("Settings").font(.system(size: 15, weight: .semibold))
             Spacer()
         }

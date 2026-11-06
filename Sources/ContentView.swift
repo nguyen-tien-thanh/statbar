@@ -12,20 +12,33 @@ struct ContentView: View {
     @ObservedObject var updater = Updater.shared
     @State var page: PopoverPage = .main
 
+    // Both pages stay in the hierarchy: the main page sets the popover's size and Settings is layered on
+    // top. Switching only slides/fades the two layers, so the popover never resizes mid-animation and
+    // neither page is torn down and rebuilt on every switch (both caused a visible hitch).
     var body: some View {
-        ZStack(alignment: .top) {
-            if page == .main {
-                mainPage.transition(.move(edge: .leading).combined(with: .opacity))
-            } else {
-                SettingsPage(settings: settings, priv: priv, updater: updater) { go(.main) }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+        let onSettings = page == .settings
+        return mainPage
+            .offset(x: onSettings ? -48 : 0)
+            .opacity(onSettings ? 0 : 1)
+            .allowsHitTesting(!onSettings)
+            .accessibilityHidden(onSettings)
+            .overlay(alignment: .top) {
+                // Settings is shorter than the main page, so it fits without scrolling.
+                SettingsPage(settings: settings, priv: priv, updater: updater, visible: onSettings) { go(.main) }
+                .offset(x: onSettings ? 0 : 360)
+                .opacity(onSettings ? 1 : 0)
+                .allowsHitTesting(onSettings)
+                .accessibilityHidden(!onSettings)
             }
-        }
-        .frame(width: 360)
-        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in page = .main }
+            .frame(width: 360)
+            .clipped()
+            .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { page = .main }        // reopen on the main page, without animating
+            }
     }
 
-    private func go(_ p: PopoverPage) { withAnimation(.easeInOut(duration: 0.22)) { page = p } }
+    private func go(_ p: PopoverPage) { withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { page = p } }
 
     private var mainPage: some View {
         VStack(spacing: 10) {
