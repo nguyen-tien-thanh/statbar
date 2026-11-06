@@ -26,8 +26,16 @@ struct SettingsPage: View {
         .padding(12)
         .frame(maxHeight: .infinity, alignment: .top)   // fill the main page's height; footer sits at the bottom
         .onExitCommand(perform: visible ? back : nil)   // Esc goes back
-        .onAppear { launchAtLogin = LoginItem.enabled }
-        .onChange(of: visible) { if $0 { launchAtLogin = LoginItem.enabled } }
+        .onAppear { refreshLaunchAtLogin(after: 0) }
+        // asked off the main thread and applied after the slide-in, so it can't stall the animation
+        .onChange(of: visible) { if $0 { refreshLaunchAtLogin(after: 0.35) } }
+    }
+
+    private func refreshLaunchAtLogin(after delay: Double) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let on = LoginItem.enabled
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { launchAtLogin = on }
+        }
     }
 
     private var header: some View {
@@ -54,6 +62,10 @@ struct SettingsPage: View {
                             if on { settings.menuItems.remove(k) } else { settings.menuItems.insert(k) }
                         }
                     }
+                }
+                if settings.menuItems.count > 1 {
+                    Divider().padding(.vertical, 8)
+                    MenuOrderStrip(settings: settings)
                 }
             }
         }
@@ -184,5 +196,73 @@ struct SettingsPage: View {
             CapsuleButton(title: "Quit StatBar", icon: "power", tint: .red, prominent: false) { NSApp.terminate(nil) }
         }
         .padding(.horizontal, 4)
+    }
+}
+
+// MARK: - Menu bar order
+
+/// The shown menu bar items, left to right as in the menu bar. Drag a pill onto another to reorder
+/// (or right-click → Move Left / Move Right). The real menu bar updates live.
+struct MenuOrderStrip: View {
+    @ObservedObject var settings: Settings
+    @State private var dragging: MenuItemKind?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("Order").font(.system(size: 11, weight: .semibold))
+                Text("drag to rearrange").font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 2)
+            HStack(spacing: 4) {
+                let shown = settings.shownItems
+                ForEach(shown) { k in
+                    pill(k)
+                        .onDrag { dragging = k; return NSItemProvider(object: k.rawValue as NSString) }
+                        .onDrop(of: [.plainText], delegate: MenuOrderDrop(target: k, settings: settings, dragging: $dragging))
+                        .contextMenu {
+                            Button("Move Left") { withAnimation(.easeOut(duration: 0.15)) { settings.shiftMenuItem(k, by: -1) } }
+                                .disabled(k == shown.first)
+                            Button("Move Right") { withAnimation(.easeOut(duration: 0.15)) { settings.shiftMenuItem(k, by: 1) } }
+                                .disabled(k == shown.last)
+                        }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func pill(_ k: MenuItemKind) -> some View {
+        // text only, like the menu bar itself – keeps all 7 on one row
+        Text(k.menuLabel).font(.system(size: 10, weight: .semibold)).lineLimit(1).fixedSize()
+            .frame(minWidth: 26)
+            .padding(.horizontal, 7).padding(.vertical, 5)
+        .background(Capsule().fill(Color.accentColor.opacity(0.13)))
+        .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35)))
+        .contentShape(Capsule())
+        .help("Drag to move \(k.shortTitle) – or right-click")
+    }
+}
+
+private struct MenuOrderDrop: DropDelegate {
+    let target: MenuItemKind
+    let settings: Settings
+    @Binding var dragging: MenuItemKind?
+
+    func dropEntered(info: DropInfo) {
+        guard let d = dragging, d != target else { return }
+        withAnimation(.easeOut(duration: 0.15)) { settings.moveMenuItem(d, to: target) }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
+}
+
+extension MenuItemKind {
+    /// The caption the menu bar label uses.
+    var menuLabel: String {
+        switch self {
+        case .cpu: "CPU"; case .gpu: "GPU"; case .mem: "MEM"; case .temp: "TEMP"
+        case .net: "NET"; case .disk: "SSD"; case .battery: "BAT"
+        }
     }
 }

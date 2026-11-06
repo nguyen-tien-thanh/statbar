@@ -26,6 +26,11 @@ final class Settings: ObservableObject {
     @Published var menuItems: Set<MenuItemKind> {
         didSet { d.set(menuItems.map(\.rawValue), forKey: "menuItems") }
     }
+    /// Left-to-right order of the menu bar items (all kinds; only those in `menuItems` are shown).
+    @Published var menuOrder: [MenuItemKind] {
+        didSet { d.set(menuOrder.map(\.rawValue), forKey: "menuOrder") }
+    }
+    var shownItems: [MenuItemKind] { menuOrder.filter(menuItems.contains) }
     @Published var interval: Double { didSet { d.set(interval, forKey: "interval") } }
     @Published var processSort: String { didSet { d.set(processSort, forKey: "processSort") } }
     @Published var fahrenheit: Bool { didSet { d.set(fahrenheit, forKey: "fahrenheit") } }
@@ -35,6 +40,10 @@ final class Settings: ObservableObject {
     private init() {
         let items = d.stringArray(forKey: "menuItems") ?? ["cpu", "mem", "net"]
         menuItems = Set(items.compactMap(MenuItemKind.init(rawValue:)))
+        var order: [MenuItemKind] = []
+        for k in (d.stringArray(forKey: "menuOrder") ?? []).compactMap(MenuItemKind.init(rawValue:)) + MenuItemKind.allCases
+        where !order.contains(k) { order.append(k) }
+        menuOrder = order
         let i = d.double(forKey: "interval"); interval = i > 0 ? i : 2
         processSort = d.string(forKey: "processSort") ?? "cpu"
         fahrenheit = d.bool(forKey: "fahrenheit")
@@ -48,6 +57,19 @@ final class Settings: ObservableObject {
         case "dark": NSAppearance(named: .darkAqua)
         default: nil    // follow macOS
         }
+    }
+
+    /// Move `item` to where `target` is (drag-to-reorder).
+    func moveMenuItem(_ item: MenuItemKind, to target: MenuItemKind) {
+        guard item != target, let from = menuOrder.firstIndex(of: item), let to = menuOrder.firstIndex(of: target) else { return }
+        menuOrder.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
+    }
+
+    /// Move a shown item one place left (-1) or right (+1) among the shown items.
+    func shiftMenuItem(_ item: MenuItemKind, by step: Int) {
+        let shown = shownItems
+        guard let i = shown.firstIndex(of: item), shown.indices.contains(i + step) else { return }
+        moveMenuItem(item, to: shown[i + step])
     }
 
     func temp(_ c: Double?) -> String {

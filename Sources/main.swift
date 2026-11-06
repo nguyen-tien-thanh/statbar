@@ -48,8 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // tick (up to `interval` seconds). @Published fires in willSet, so hop to the next main-queue turn
         // to read the new value.
         settingsObserver = Settings.shared.$menuItems.map { _ in () }
-            .merge(with: Settings.shared.$fahrenheit.map { _ in () })
-            .dropFirst(2)
+            .merge(with: Settings.shared.$fahrenheit.map { _ in () }, Settings.shared.$menuOrder.map { _ in () })
+            .dropFirst(3)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in MainActor.assumeIsolated { self?.updateLabel() } }
         updateLabel()

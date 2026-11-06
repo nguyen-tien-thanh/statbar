@@ -5,10 +5,11 @@ struct StatusLabel: View {
     let m: Monitor
     let items: Set<MenuItemKind>
     let fahrenheit: Bool
+    var order: [MenuItemKind] = Settings.shared.menuOrder
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(MenuItemKind.allCases.filter { items.contains($0) }) { k in cell(k) }
+            ForEach(order.filter { items.contains($0) }) { k in cell(k) }
         }
         .foregroundStyle(Color.black)
         .padding(.horizontal, 1)

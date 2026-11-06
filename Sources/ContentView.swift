@@ -4,29 +4,30 @@ import AppKit
 enum PopoverPage { case main, settings }
 
 struct ContentView: View {
-    @ObservedObject var m: Monitor
-    @ObservedObject var settings = Settings.shared
-    @ObservedObject var power: PowerAssertions
-    @ObservedObject var fan: FanController
-    @ObservedObject var priv = Privileged.shared
-    @ObservedObject var updater = Updater.shared
+    // Not observed here: this view only switches pages. `MainPage` and `SettingsPage` observe what they
+    // show, so a sampler tick doesn't rebuild Settings and a page switch doesn't rebuild the main page.
+    let m: Monitor
+    var settings = Settings.shared
+    let power: PowerAssertions
+    let fan: FanController
+    var priv = Privileged.shared
+    var updater = Updater.shared
     @State var page: PopoverPage = .main
 
     // Both pages stay in the hierarchy: the main page sets the popover's size and Settings is layered on
-    // top. Switching only slides/fades the two layers, so the popover never resizes mid-animation and
-    // neither page is torn down and rebuilt on every switch (both caused a visible hitch).
+    // top. Switching only slides the two layers (a pure translation – fading the busy main page forced an
+    // offscreen re-composite every frame), so the popover never resizes and nothing is rebuilt.
     var body: some View {
         let onSettings = page == .settings
-        return mainPage
-            .offset(x: onSettings ? -48 : 0)
-            .opacity(onSettings ? 0 : 1)
+        return MainPage(m: m, settings: settings, power: power, fan: fan, priv: priv, updater: updater) { go(.settings) }
+            .equatable()
+            .offset(x: onSettings ? -360 : 0)
             .allowsHitTesting(!onSettings)
             .accessibilityHidden(onSettings)
             .overlay(alignment: .top) {
                 // Settings is shorter than the main page, so it fits without scrolling.
                 SettingsPage(settings: settings, priv: priv, updater: updater, visible: onSettings) { go(.main) }
                 .offset(x: onSettings ? 0 : 360)
-                .opacity(onSettings ? 1 : 0)
                 .allowsHitTesting(onSettings)
                 .accessibilityHidden(!onSettings)
             }
@@ -38,7 +39,22 @@ struct ContentView: View {
             }
     }
 
-    private func go(_ p: PopoverPage) { withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { page = p } }
+    private func go(_ p: PopoverPage) { withAnimation(.spring(response: 0.32, dampingFraction: 1)) { page = p } }
+}
+
+/// The popover's main page. Equatable (always equal) so the parent's page switches never re-evaluate it;
+/// it still updates whenever one of its observed objects publishes.
+struct MainPage: View, Equatable {
+    static func == (a: MainPage, b: MainPage) -> Bool { true }
+    @ObservedObject var m: Monitor
+    @ObservedObject var settings: Settings
+    @ObservedObject var power: PowerAssertions
+    @ObservedObject var fan: FanController
+    @ObservedObject var priv: Privileged
+    @ObservedObject var updater: Updater
+    let openSettings: () -> Void
+
+    var body: some View { mainPage }
 
     private var mainPage: some View {
         VStack(spacing: 10) {
@@ -83,7 +99,7 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 4)
                 CircleIconButton(icon: "arrow.clockwise", help: "Refresh now") { m.refreshNow() }
-                CircleIconButton(icon: "gearshape", help: "Settings") { go(.settings) }
+                CircleIconButton(icon: "gearshape", help: "Settings", action: openSettings)
                     .overlay(alignment: .topTrailing) {
                         if updater.updateAvailable { Circle().fill(Color.blue).frame(width: 7, height: 7).offset(x: 1, y: -1) }
                     }
