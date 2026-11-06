@@ -18,10 +18,12 @@ final class Updater: ObservableObject {
     @Published private(set) var downloadURL: URL?
     private var downloadDigest: String?     // "sha256:…" from the GitHub asset, when provided
 
-    /// Progress of an in-app update (download → verify → replace → relaunch).
-    enum InstallState: Equatable { case none, downloading(Double), installing, failed(String) }
+    /// Progress of an in-app update: download → verify/stage → ready (ask to restart) → swap + relaunch.
+    enum InstallState: Equatable { case none, downloading(Double), installing, ready, failed(String) }
     @Published private(set) var install: InstallState = .none
     var installing: Bool { if case .downloading = install { return true }; return install == .installing }
+    /// Verified copy of the new app waiting next to the current one; swapped in on restart or quit.
+    private var staged: URL?
     private var progressObservation: NSKeyValueObservation?
     @Published var autoCheck: Bool = UserDefaults.standard.object(forKey: "autoUpdateCheck") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoCheck, forKey: "autoUpdateCheck"); if autoCheck { check() } }
@@ -60,7 +62,7 @@ final class Updater: ObservableObject {
             downloadDigest = UserDefaults.standard.string(forKey: "latestDownloadDigest")
             state = .available
         }
-        check(manual: CommandLine.arguments.contains("--install-update"))
+        check(manual: Self.debugInstall)
         timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in
             Task { @MainActor in Updater.shared.check() }
         }
@@ -72,7 +74,7 @@ final class Updater: ObservableObject {
 
     /// `manual` bypasses the auto-check setting and the rate limit.
     func check(manual: Bool = false) {
-        guard state != .checking, !installing else { return }
+        guard state != .checking, !installing, install != .ready else { return }
         if !manual {
             guard autoCheck else { return }
             if let t = lastChecked, Date().timeIntervalSince(t) < minInterval { return }
@@ -88,7 +90,7 @@ final class Updater: ObservableObject {
                 d.set(r.digest, forKey: "latestDownloadDigest")
                 state = Self.isNewer(r.version, than: current) ? .available : .upToDate
                 // Debug: `StatBar --install-update` installs right away (used to test the update flow end to end)
-                if state == .available && CommandLine.arguments.contains("--install-update") { installUpdate() }
+                if state == .available && Self.debugInstall { installUpdate() }
             } catch {
                 state = .failed((error as? UpdateError)?.message ?? "Offline")
             }
@@ -105,10 +107,11 @@ final class Updater: ObservableObject {
     /// Can this copy replace itself? Not when run from the DMG, App Translocation or a folder we can't write.
     var canSelfUpdate: Bool { UpdateInstaller.canReplace(Bundle.main.bundleURL) }
 
-    /// One click: download the DMG, verify it, swap the app bundle in place, quit and reopen.
+    /// One click: download the DMG and verify it in the background, then ask to restart.
     /// Falls back to opening the download in the browser when the app can't replace itself.
     func installUpdate() {
         guard !installing else { return }
+        if install == .ready { restartToUpdate(); return }
         guard updateAvailable, let url = downloadURL, let version = latest, canSelfUpdate else { openDownload(); return }
         install = .downloading(0)
         let digest = downloadDigest
@@ -126,12 +129,13 @@ final class Updater: ObservableObject {
                 guard let dmg else { u.install = .failed(failure); return }
                 u.install = .installing
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let result = Result { try UpdateInstaller.install(dmg: dmg, expectedVersion: version, digest: digest) }
+                    let result = Result { try UpdateInstaller.prepare(dmg: dmg, expectedVersion: version, digest: digest) }
                     try? FileManager.default.removeItem(at: dmg)
                     Task { @MainActor in
+                        let u = Updater.shared
                         switch result {
-                        case .success: UpdateInstaller.relaunch()
-                        case .failure(let e): Updater.shared.install = .failed((e as? UpdateError)?.message ?? e.localizedDescription)
+                        case .success(let app): u.staged = app; u.install = .ready; u.askToRestart(version)
+                        case .failure(let e): u.install = .failed((e as? UpdateError)?.message ?? e.localizedDescription)
                         }
                     }
                 }
@@ -144,6 +148,40 @@ final class Updater: ObservableObject {
             }
         }
         task.resume()
+    }
+
+    /// Debug: `--install-update` installs right away; `--install-update-later` also answers "Later" and quits.
+    private static var debugInstall: Bool { CommandLine.arguments.contains { $0.hasPrefix("--install-update") } }
+
+    private func askToRestart(_ version: String) {
+        if CommandLine.arguments.contains("--install-update-later") { NSApp.terminate(nil); return }
+        let a = NSAlert()
+        a.messageText = "StatBar \(version) is ready"
+        a.informativeText = "Restart StatBar now to finish updating? If you choose Later, the update is installed the next time StatBar quits."
+        a.icon = NSApp.applicationIconImage
+        a.addButton(withTitle: "Restart Now")
+        a.addButton(withTitle: "Later")
+        NotificationCenter.default.post(name: .statbarClosePopover, object: nil)
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn { restartToUpdate() }
+    }
+
+    /// Swap the staged app in, quit and reopen.
+    func restartToUpdate() {
+        guard install == .ready else { return }
+        do { try swapStaged() } catch {
+            install = .failed((error as? UpdateError)?.message ?? error.localizedDescription); return
+        }
+        UpdateInstaller.relaunch()
+    }
+
+    /// Called when the app quits: install a staged update chosen "Later" (no relaunch).
+    func installPendingOnQuit() { try? swapStaged() }
+
+    private func swapStaged() throws {
+        guard let app = staged else { return }
+        staged = nil
+        try UpdateInstaller.swap(staged: app)
     }
 
     // MARK: - GitHub

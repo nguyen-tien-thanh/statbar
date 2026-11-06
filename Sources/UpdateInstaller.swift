@@ -15,8 +15,9 @@ enum UpdateInstaller {
         return FileManager.default.isWritableFile(atPath: parent) && FileManager.default.isWritableFile(atPath: path)
     }
 
-    /// Verify + stage + swap. Runs off the main thread.
-    static func install(dmg: URL, expectedVersion: String, digest: String?) throws {
+    /// Verify the DMG and stage its app next to the current one (same volume). Runs off the main thread.
+    /// Returns the staged app; nothing is replaced yet – see `swap(staged:)`.
+    static func prepare(dmg: URL, expectedVersion: String, digest: String?) throws -> URL {
         let fm = FileManager.default
         let target = Bundle.main.bundleURL
 
@@ -29,7 +30,8 @@ enum UpdateInstaller {
 
         // 2. Mount read-only, out of sight.
         let work = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: target, create: true)
-        defer { try? fm.removeItem(at: work) }
+        var keepWork = false
+        defer { if !keepWork { try? fm.removeItem(at: work) } }
         let mnt = work.appendingPathComponent("mnt")
         try fm.createDirectory(at: mnt, withIntermediateDirectories: true)
         guard run("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-noverify", "-noautoopen", "-readonly", "-mountpoint", mnt.path]) == 0 else {
@@ -50,12 +52,21 @@ enum UpdateInstaller {
             throw Failure(message: "Update's code signature is invalid")
         }
 
-        // 4. Copy next to the current app (same volume), then swap atomically.
+        // 4. Copy next to the current app (same volume) so the later swap is atomic.
         let staged = work.appendingPathComponent(target.lastPathComponent)
         guard run("/usr/bin/ditto", [newApp.path, staged.path]) == 0 else { throw Failure(message: "Couldn't copy the update") }
         _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
+        keepWork = true
+        return staged
+    }
+
+    /// Atomically replace the running app's bundle with a staged copy from `prepare`.
+    static func swap(staged: URL) throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: staged.deletingLastPathComponent()) }
+        guard fm.fileExists(atPath: staged.path) else { throw Failure(message: "The downloaded update was removed – try again") }
         do {
-            _ = try fm.replaceItemAt(target, withItemAt: staged, backupItemName: nil, options: [])
+            _ = try fm.replaceItemAt(Bundle.main.bundleURL, withItemAt: staged, backupItemName: nil, options: [])
         } catch {
             throw Failure(message: "Couldn't replace the app: \(error.localizedDescription)")
         }

@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         power.setAwake(false); power.setScreen(false)
+        MainActor.assumeIsolated { Updater.shared.installPendingOnQuit() }
     }
 
     @MainActor private func updateLabel() {

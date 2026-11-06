@@ -263,7 +263,7 @@ extension MenuItemKind {
     }
 }
 
-/// "Update to x.y.z" → "Downloading 42%" → "Installing…" → app quits and reopens.
+/// "Update to x.y.z" → "Downloading 42%" → "Verifying…" → "Restart now?" → app quits and reopens.
 struct UpdateActionButton: View {
     @ObservedObject var updater: Updater
     var body: some View {
@@ -273,9 +273,12 @@ struct UpdateActionButton: View {
                 ProgressView(value: p).progressViewStyle(.circular).controlSize(.mini).scaleEffect(0.75).frame(width: 12, height: 12)
             }
         case .installing:
-            progressPill(Text("Installing…")) {
+            progressPill(Text("Verifying…")) {
                 ProgressView().controlSize(.mini).scaleEffect(0.6).frame(width: 12, height: 12)
             }
+        case .ready:
+            CapsuleButton(title: "Restart to update", icon: "arrow.clockwise.circle.fill", tint: .green) { updater.restartToUpdate() }
+                .help("StatBar \(updater.latest ?? "") is downloaded and verified.\nClick to restart now, or it's installed the next time StatBar quits.")
         case .failed(let msg):
             CapsuleButton(title: "Retry update", icon: "arrow.clockwise", tint: .orange) { updater.installUpdate() }
                 .help("Update failed: \(msg)\nClick to try again, or download it manually from Settings.")
