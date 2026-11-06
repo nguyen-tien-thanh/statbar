@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
@@ -8,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let power = PowerAssertions()
     private let fan = FanController()
     private var lastImageKey = ""
+    private var settingsObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -41,6 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NotificationCenter.default.addObserver(forName: .statbarTick, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateLabel() }
         }
+        // Redraw the menu bar label as soon as its items or units change instead of waiting for the next
+        // tick (up to `interval` seconds). @Published fires in willSet, so hop to the next main-queue turn
+        // to read the new value.
+        settingsObserver = Settings.shared.$menuItems.map { _ in () }
+            .merge(with: Settings.shared.$fahrenheit.map { _ in () })
+            .dropFirst(2)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in MainActor.assumeIsolated { self?.updateLabel() } }
         updateLabel()
         Updater.shared.start()
     }
