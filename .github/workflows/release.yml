@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build StatBar.app + StatBar.dmg
+      - name: Build StatBar.app + StatBar.dmg + StatBar.zip
         run: VERSION="${GITHUB_REF_NAME#v}" BUILD_NUMBER="${{ github.run_number }}" ./build.sh
 
       - name: Publish GitHub release
@@ -35,5 +35,6 @@ jobs:
 
           Universal (Apple Silicon + Intel) · macOS 13 or later · MIT License
           EOF
-          gh release create "$GITHUB_REF_NAME" build/StatBar.dmg \
+          # StatBar.zip is what the in-app updater downloads
+          gh release create "$GITHUB_REF_NAME" build/StatBar.dmg build/StatBar.zip \
             --title "StatBar ${GITHUB_REF_NAME#v}" --notes-file notes.md --generate-notes --verify-tag

@@ -95,3 +95,8 @@ rm -f "$RW"
 
 echo "✓ $(du -sh "$BUNDLE" | cut -f1)  $BUNDLE"
 echo "✓ $(du -sh "$BUILD/$APP.dmg" | cut -f1)  $BUILD/$APP.dmg"
+
+# In-app updates download this instead of the DMG (no mounting → no "Removable Volumes" permission)
+rm -f "$BUILD/$APP.zip"
+ditto -c -k --sequesterRsrc --keepParent "$BUNDLE" "$BUILD/$APP.zip"
+echo "✓ $(du -sh "$BUILD/$APP.zip" | cut -f1)  $BUILD/$APP.zip"

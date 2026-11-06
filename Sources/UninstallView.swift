@@ -89,8 +89,10 @@ struct UninstallView: View {
                 } else {
                     List {
                         Section {
-                            HStack {
-                                Image(systemName: "app").frame(width: 18)
+                            HStack(spacing: 8) {
+                                // the app itself is always removed: show it as a ticked, locked checkbox
+                                Toggle("", isOn: .constant(true)).toggleStyle(.checkbox).labelsHidden().disabled(true)
+                                    .help("The app itself is always removed")
                                 Text("Application").font(.system(size: 12, weight: .medium))
                                 Text(FSUtil.tilde(app.path)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                                 Spacer()
