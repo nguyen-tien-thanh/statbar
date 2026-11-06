@@ -150,7 +150,8 @@ final class Cleaner: ObservableObject {
         }
     }
 
+    /// Opens Settings › Full Disk Access with the drag-in guide (StatBar isn't listed there until added).
     static func openFullDiskAccessSettings() {
-        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(u) }
+        Task { @MainActor in FullDiskAccess.requestGuided() }
     }
 }

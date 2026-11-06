@@ -12,6 +12,7 @@ struct SettingsPage: View {
     // Not read in the initializer: the page is re-created on every parent update (each tick) and
     // asking SMAppService that often is wasteful. Refreshed whenever the page is shown.
     @State private var launchAtLogin = false
+    @State private var fullDiskAccess = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,9 +27,9 @@ struct SettingsPage: View {
         .padding(12)
         .frame(maxHeight: .infinity, alignment: .top)   // fill the main page's height; footer sits at the bottom
         .onExitCommand(perform: visible ? back : nil)   // Esc goes back
-        .onAppear { refreshLaunchAtLogin(after: 0) }
+        .onAppear { refreshLaunchAtLogin(after: 0); fullDiskAccess = FullDiskAccess.granted }
         // asked off the main thread and applied after the slide-in, so it can't stall the animation
-        .onChange(of: visible) { if $0 { refreshLaunchAtLogin(after: 0.35) } }
+        .onChange(of: visible) { if $0 { refreshLaunchAtLogin(after: 0.35); fullDiskAccess = FullDiskAccess.granted } }
     }
 
     private func refreshLaunchAtLogin(after delay: Double) {
@@ -104,6 +105,14 @@ struct SettingsPage: View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("General")
             Surface(padding: 12) {
+                SettingRow(title: "Full Disk Access", subtitle: fullDiskAccess ? "Granted · Clean and Analyze see everything" : "Needed to clean and analyze protected folders") {
+                    if fullDiskAccess {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 15))
+                    } else {
+                        CapsuleButton(title: "Grant…", icon: "lock.open") { FullDiskAccess.requestGuided() }
+                    }
+                }
+                Divider()
                 SettingRow(title: "Launch at login", subtitle: "Start StatBar when you log in") {
                     Toggle("", isOn: Binding(get: { launchAtLogin }, set: { LoginItem.set($0); launchAtLogin = LoginItem.enabled }))
                         .toggleStyle(.switch).controlSize(.small).labelsHidden()

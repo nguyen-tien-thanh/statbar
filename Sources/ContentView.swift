@@ -25,8 +25,13 @@ struct ContentView: View {
             .allowsHitTesting(!onSettings)
             .accessibilityHidden(onSettings)
             .overlay(alignment: .top) {
-                // Settings is shorter than the main page, so it fits without scrolling.
-                SettingsPage(settings: settings, priv: priv, updater: updater, visible: onSettings) { go(.main) }
+                // Fills the main page's height (footer at the bottom) and scrolls if Settings grows taller.
+                GeometryReader { g in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        SettingsPage(settings: settings, priv: priv, updater: updater, visible: onSettings) { go(.main) }
+                            .frame(minHeight: g.size.height)
+                    }
+                }
                 .offset(x: onSettings ? 0 : 360)
                 .allowsHitTesting(onSettings)
                 .accessibilityHidden(!onSettings)
