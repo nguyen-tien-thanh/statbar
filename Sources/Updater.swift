@@ -29,7 +29,8 @@ final class Updater: ObservableObject {
         didSet { UserDefaults.standard.set(autoCheck, forKey: "autoUpdateCheck"); if autoCheck { check() } }
     }
 
-    private let minInterval: TimeInterval = 6 * 3600
+    // < the 1 h timer period (which has 10 min tolerance), so every hourly tick really checks
+    private let minInterval: TimeInterval = 55 * 60
     private var timer: Timer?
     private var lastChecked: Date? {
         get { UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date }
