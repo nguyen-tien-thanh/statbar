@@ -70,6 +70,16 @@ final class Toolbox: NSObject, ObservableObject, NSWindowDelegate {
             window = w
         }
         if let w = window, w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil) }   // reopen windowed
+        // Open on the display the user clicked from, not where the frame was last saved: with several
+        // displays the window otherwise reappears on another screen (often behind its full-screen app).
+        let mouse = NSEvent.mouseLocation
+        if let w = window, !w.isVisible,
+           let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }), w.screen != screen {
+            let vf = screen.visibleFrame
+            let size = NSSize(width: min(w.frame.width, vf.width), height: min(w.frame.height, vf.height))
+            w.setFrame(NSRect(x: vf.midX - size.width / 2, y: vf.midY - size.height / 2,
+                              width: size.width, height: size.height), display: false)
+        }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         visible = true
